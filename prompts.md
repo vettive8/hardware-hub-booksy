@@ -41,3 +41,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Rental state-machine prompt
 
 > Implement rent and return as guarded state transitions under an immediate SQLite transaction. Renting must atomically require Available and not damaged; returning must require In Use and ownership (or admin). Admin repair toggles must not bypass an active rental, and deleting an In Use item must be blocked. Return repaired items to availability only through an explicit repair-complete toggle.
+
+## 2026-07-14 — Correction prompt (recorded when it happened)
+
+> The API import failed because the generated delete endpoint combined status 204 with FastAPI's default JSON response behavior. Correct it by using an explicit empty `Response`, then rerun the complete rental smoke flow before continuing. Document this actual framework-contract mistake instead of claiming the anticipated duplicate-overwrite scenario happened.

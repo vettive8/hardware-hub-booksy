@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
@@ -149,12 +149,17 @@ def create_hardware(
     return serialize_hardware(row)
 
 
-@app.delete("/api/hardware/{hardware_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete(
+    "/api/hardware/{hardware_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
 def delete_hardware(
     hardware_id: int,
     _: Annotated[sqlite3.Row, Depends(admin_user)],
     db: Annotated[sqlite3.Connection, Depends(get_db)],
-) -> None:
+) -> Response:
     item = db.execute("SELECT status FROM hardware WHERE id = ?", (hardware_id,)).fetchone()
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hardware not found")
@@ -162,6 +167,7 @@ def delete_hardware(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Return the hardware before deleting it")
     db.execute("DELETE FROM hardware WHERE id = ?", (hardware_id,))
     db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.patch("/api/hardware/{hardware_id}/repair", response_model=HardwareOut)
@@ -255,4 +261,3 @@ def my_rentals(
         (user["id"],),
     ).fetchall()
     return [{**serialize_hardware(row), "rental_id": row["rental_id"], "rented_at": row["rented_at"]} for row in rows]
-
