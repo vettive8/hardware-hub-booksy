@@ -33,3 +33,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Data boundary prompt
 
 > Design the seed loader before the CRUD routes. Validate IDs, required fields, allowed statuses, ISO dates, future dates, likely brand typos, and damage language. Reject structurally unsafe rows, retain accepted-but-suspicious rows with explicit safety flags, and persist every issue with the original raw JSON so the audit is explainable. Never use an ID-keyed dictionary that could silently overwrite duplicate id 4.
+
+## 2026-07-14 — Auth and query prompt
+
+> Add a small but real authentication boundary: PBKDF2 password hashes, expiring signed bearer tokens, an admin role guard, and server-side account creation. Keep list sorting safe by mapping accepted sort keys to SQL columns rather than interpolating arbitrary client input. Seed reviewer-friendly demo accounts without exposing a production credential pattern.
