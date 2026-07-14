@@ -37,3 +37,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Auth and query prompt
 
 > Add a small but real authentication boundary: PBKDF2 password hashes, expiring signed bearer tokens, an admin role guard, and server-side account creation. Keep list sorting safe by mapping accepted sort keys to SQL columns rather than interpolating arbitrary client input. Seed reviewer-friendly demo accounts without exposing a production credential pattern.
+
+## 2026-07-14 — Rental state-machine prompt
+
+> Implement rent and return as guarded state transitions under an immediate SQLite transaction. Renting must atomically require Available and not damaged; returning must require In Use and ownership (or admin). Admin repair toggles must not bypass an active rental, and deleting an In Use item must be blocked. Return repaired items to availability only through an explicit repair-complete toggle.
