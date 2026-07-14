@@ -1,3 +1,24 @@
+"""AI Inventory Auditor.
+
+Two independent passes inspect the same source data.
+
+The deterministic rule engine is the safety authority. It always runs, costs
+nothing, and its findings can never be removed or downgraded by the model.
+
+The language model runs a second, independent pass. It is shown the evidence --
+accepted inventory plus the raw source rows -- but never the loader's conclusions,
+so it cannot simply restate them. Agreement between the two passes is recorded as
+corroboration rather than discarded as duplication:
+
+    corroborated  both passes found it          highest confidence
+    rules_only    provable; the model missed it  tells us where the model is weak
+    model_only    the model alone raised it      the signal we are paying for
+
+Model output is untrusted input. Each finding is validated on its own, and a bad
+finding is quarantined without discarding the valid ones -- the same policy the
+seed loader applies to bad records.
+"""
+
 from __future__ import annotations
 
 import json
@@ -10,10 +31,51 @@ from openai import APIError, OpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Severity = Literal["critical", "high", "medium", "low"]
-AUDITOR_INSTRUCTIONS = """You are an additive inventory reviewer. Inspect accepted inventory and rejected/flagged seed-import evidence. Return one JSON object with a `findings` array. Each finding must use only evidence supplied here and contain code, severity (critical, high, medium, or low), hardware_id (an ID present in the supplied source or null), title, explanation, and evidence as a short text quote or fact from the supplied data. Look for contradictions or safety concerns not already obvious. Never claim the inventory is clean and never invent identifiers or facts."""
+
+# A shared taxonomy, not an answer key. The model is told which *kinds* of problem
+# exist so its findings can be compared with the rule engine's; it is never told
+# which records have them. `other` is the escape hatch for genuinely novel findings,
+# which by definition can never corroborate a rule.
+FindingCode = Literal[
+    "duplicate_id",
+    "invalid_id",
+    "missing_name",
+    "missing_brand",
+    "brand_typo",
+    "unknown_status",
+    "invalid_purchase_date",
+    "future_purchase_date",
+    "damage_status_conflict",
+    "database_conflict",
+    "other",
+]
+FINDING_CODES: list[str] = list(FindingCode.__args__)
+
+AUDITOR_INSTRUCTIONS = """You are an independent inventory auditor for a hardware rental system.
+
+You receive two things:
+- `accepted_inventory`: the records that were loaded into the operational database.
+- `raw_source_rows`: rows exactly as they appeared in the supplied source file. Some of
+  these were never loaded. Work out for yourself which ones are unsafe, and why.
+
+Nobody has told you what is wrong with this data. Determine it from the evidence.
+Look for colliding identifiers, impossible or implausible dates, misspelled brands,
+unsupported statuses, missing required fields, and free-text notes or history that
+contradict a record's declared status.
+
+Rules:
+- Use only the evidence supplied. Never invent an identifier, a record, or a fact.
+- `hardware_id` must be the `id` field of the row the finding is about -- including
+  rows that were never loaded, which still carry an `id`. Use null only for an
+  observation about the file as a whole, never as a substitute for an id you can see.
+- Raise one finding per problem per row. Do not restate the same problem twice.
+- Choose the `code` that best classifies the problem. Use `other` only for a real
+  problem that none of the listed codes describe.
+- `evidence` must be a short, literal quote or fact drawn from the supplied data.
+- Never claim the inventory is clean."""
 
 # Provider grammars support a smaller JSON Schema subset than Pydantic. Keep this
-# deliberately boring and portable; LLMAuditResponse remains the richer trust boundary.
+# deliberately boring and portable; LLMAuditResponse remains the trust boundary.
 WIRE_AUDIT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -22,11 +84,11 @@ WIRE_AUDIT_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "code": {"type": "string", "description": "Lowercase snake_case finding category."},
+                    "code": {"type": "string", "enum": FINDING_CODES},
                     "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                     "hardware_id": {
                         "anyOf": [{"type": "integer"}, {"type": "null"}],
-                        "description": "An identifier present in the supplied source, or null.",
+                        "description": "An identifier present in the supplied data, or null.",
                     },
                     "title": {"type": "string"},
                     "explanation": {"type": "string"},
@@ -58,7 +120,7 @@ TITLE_BY_CODE = {
 class LLMFinding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9_]+$")
+    code: FindingCode
     severity: Severity
     hardware_id: int | None = None
     title: str = Field(min_length=2, max_length=160)
@@ -66,16 +128,15 @@ class LLMFinding(BaseModel):
     evidence: str = Field(min_length=2, max_length=500)
 
 
-class LLMAuditResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    findings: list[LLMFinding] = Field(max_length=50)
-
-
 @dataclass(frozen=True)
 class ProviderAuditResult:
     payload: dict[str, Any]
     model: str
+
+
+def openrouter_enabled() -> bool:
+    disabled = os.getenv("OPENROUTER_DISABLED", "").strip().casefold() in {"1", "true", "yes"}
+    return bool(os.getenv("OPENROUTER_API_KEY")) and not disabled
 
 
 def _severity(code: str, imported_severity: str) -> Severity:
@@ -101,6 +162,29 @@ def collect_evidence(db: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
     return {"inventory": inventory, "import_issues": import_issues}
 
 
+def model_evidence(evidence: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    """The payload sent to the model: evidence without the loader's conclusions.
+
+    Sending `import_issues` verbatim would hand the model the rule engine's own
+    codes and messages, which it would restate. Sending only the accepted inventory
+    would go too far the other way -- rejected records never reach the hardware
+    table, so the model would be blind to the duplicate ID, the unknown status and
+    the unparseable date. The raw source rows carry the evidence without the answer.
+    """
+    seen: set[int] = set()
+    raw_rows: list[dict[str, Any]] = []
+    for issue in evidence["import_issues"]:
+        index = issue["source_index"]
+        if index in seen:
+            continue
+        seen.add(index)
+        raw_rows.append({"source_index": index, "row": json.loads(issue["raw_record"])})
+    return {
+        "accepted_inventory": evidence["inventory"],
+        "raw_source_rows": sorted(raw_rows, key=lambda item: item["source_index"]),
+    }
+
+
 def source_hardware_ids(evidence: dict[str, list[dict[str, Any]]]) -> set[int]:
     ids = {item["id"] for item in evidence["inventory"] if isinstance(item.get("id"), int)}
     ids.update(
@@ -109,6 +193,20 @@ def source_hardware_ids(evidence: dict[str, list[dict[str, Any]]]) -> set[int]:
         if isinstance(issue.get("hardware_id"), int)
     )
     return ids
+
+
+def _rule_evidence_line(raw: dict[str, Any], source_index: int) -> str:
+    notes = raw.get("notes") or raw.get("history")
+    parts = [
+        f"source row {source_index}",
+        str(raw.get("name") or "unnamed record"),
+        f"brand {raw.get('brand') or 'none'}",
+        f"status {raw.get('status') or 'none'}",
+        f"purchased {raw.get('purchaseDate') or 'none'}",
+    ]
+    if notes:
+        parts.append(f"notes: {notes}")
+    return " · ".join(parts)[:500]
 
 
 def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -123,14 +221,9 @@ def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[di
                 "hardware_id": issue["hardware_id"],
                 "title": TITLE_BY_CODE.get(code, "Inventory import anomaly"),
                 "explanation": issue["message"],
-                "evidence": {
-                    "source_index": issue["source_index"],
-                    "name": raw.get("name"),
-                    "status": raw.get("status"),
-                    "purchase_date": raw.get("purchaseDate"),
-                    "notes": raw.get("notes") or raw.get("history"),
-                },
+                "evidence": _rule_evidence_line(raw, issue["source_index"]),
                 "source": "rules",
+                "confidence": "rules_only",
             }
         )
     return findings
@@ -138,7 +231,7 @@ def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[di
 
 def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> ProviderAuditResult:
     api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
+    if not api_key or not openrouter_enabled():
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
     primary = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
     configured_fallbacks = os.getenv("OPENROUTER_FALLBACK_MODELS", "google/gemini-3.1-flash-lite")
@@ -152,16 +245,12 @@ def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> ProviderAudi
         temperature=0,
         response_format={
             "type": "json_schema",
-            "json_schema": {
-                "name": "inventory_audit",
-                "strict": True,
-                "schema": WIRE_AUDIT_SCHEMA,
-            },
+            "json_schema": {"name": "inventory_audit", "strict": True, "schema": WIRE_AUDIT_SCHEMA},
         },
         extra_body=routing,
         messages=[
             {"role": "system", "content": AUDITOR_INSTRUCTIONS},
-            {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)},
+            {"role": "user", "content": json.dumps(model_evidence(evidence), ensure_ascii=False)},
         ],
     )
     content = completion.choices[0].message.content
@@ -170,28 +259,64 @@ def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> ProviderAudi
     return ProviderAuditResult(payload=json.loads(content), model=completion.model)
 
 
+def validate_findings(payload: Any) -> tuple[list[LLMFinding], int]:
+    """Quarantine bad findings individually; never discard the batch for one bad row.
+
+    Raises only when the envelope itself is unusable, which is the one case where
+    there is nothing left to salvage.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+        raise ValueError("Model response has no usable findings array")
+
+    accepted: list[LLMFinding] = []
+    dropped = 0
+    for raw in payload["findings"][:50]:
+        try:
+            accepted.append(LLMFinding.model_validate(raw))
+        except ValidationError:
+            dropped += 1
+    return accepted, dropped
+
+
 def merge_findings(
     rule_findings: list[dict[str, Any]],
-    llm_response: LLMAuditResponse,
+    llm_findings: list[LLMFinding],
     valid_ids: set[int],
-) -> tuple[list[dict[str, Any]], int, int]:
-    merged = list(rule_findings)
-    occupied = {(item["hardware_id"], item["code"]) for item in rule_findings}
-    unknown_id_drops = 0
-    duplicate_drops = 0
-    for validated in llm_response.findings:
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Rules stay authoritative. Agreement is corroboration, not duplication."""
+    rule_keys = {(item["hardware_id"], item["code"]) for item in rule_findings}
+    corroborated_keys: set[tuple[int | None, str]] = set()
+    model_only: list[dict[str, Any]] = []
+    dropped_unknown_ids = 0
+
+    for validated in llm_findings:
         finding = validated.model_dump()
         if finding["hardware_id"] is not None and finding["hardware_id"] not in valid_ids:
-            unknown_id_drops += 1
+            dropped_unknown_ids += 1
             continue
         key = (finding["hardware_id"], finding["code"])
-        if key in occupied:
-            duplicate_drops += 1
+        if key in rule_keys:
+            corroborated_keys.add(key)
             continue
         finding["source"] = "llm"
-        merged.append(finding)
-        occupied.add(key)
-    return merged, unknown_id_drops, duplicate_drops
+        finding["confidence"] = "model_only"
+        model_only.append(finding)
+
+    merged: list[dict[str, Any]] = []
+    for item in rule_findings:
+        promoted = dict(item)
+        key = (item["hardware_id"], item["code"])
+        promoted["confidence"] = "corroborated" if key in corroborated_keys else "rules_only"
+        merged.append(promoted)
+    merged.extend(model_only)
+
+    counts = {
+        "corroborated": len(corroborated_keys),
+        "rules_only": len(rule_findings) - len(corroborated_keys),
+        "model_only": len(model_only),
+        "dropped_unknown_ids": dropped_unknown_ids,
+    }
+    return merged, counts
 
 
 def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
@@ -201,34 +326,40 @@ def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
     primary = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
     llm_status = {
         "state": "not_configured",
-        "message": "Deterministic rules ran; add OPENROUTER_API_KEY for an additive model review.",
+        "message": "Deterministic rules ran; add OPENROUTER_API_KEY for an independent model pass.",
         "accepted_findings": 0,
     }
-    guard = {"dropped_unknown_ids": 0, "dropped_rule_duplicates": 0}
+    guard = {
+        "corroborated": 0,
+        "rules_only": len(rule_findings),
+        "model_only": 0,
+        "dropped_unknown_ids": 0,
+        "dropped_invalid_schema": 0,
+    }
     mode = "rules"
 
-    if os.getenv("OPENROUTER_API_KEY"):
+    if os.getenv("OPENROUTER_API_KEY") and not openrouter_enabled():
+        llm_status = {
+            "state": "disabled",
+            "message": "OPENROUTER_DISABLED is set; the paid provider call was skipped.",
+            "accepted_findings": 0,
+        }
+    elif openrouter_enabled():
         try:
             provider_result = request_llm_audit(evidence)
-            validated = LLMAuditResponse.model_validate(provider_result.payload)
-            findings, unknown_drops, duplicate_drops = merge_findings(
-                rule_findings, validated, source_hardware_ids(evidence)
-            )
-            guard = {"dropped_unknown_ids": unknown_drops, "dropped_rule_duplicates": duplicate_drops}
+            validated, dropped_invalid = validate_findings(provider_result.payload)
+            findings, counts = merge_findings(rule_findings, validated, source_hardware_ids(evidence))
+            guard = {**counts, "dropped_invalid_schema": dropped_invalid}
             llm_status = {
                 "state": "succeeded",
-                "message": "Model findings passed provider and application schemas, ID checks, and rule-first deduplication.",
-                "accepted_findings": len(findings) - len(rule_findings),
+                "message": (
+                    f"Independent model pass: {counts['model_only']} new findings, "
+                    f"{counts['corroborated']} corroborating the rule engine."
+                ),
+                "accepted_findings": counts["model_only"],
             }
             primary = provider_result.model
             mode = "rules+llm"
-        except ValidationError as exc:
-            llm_status = {
-                "state": "invalid_response",
-                "message": f"Model layer discarded after schema validation failed ({exc.error_count()} errors).",
-                "accepted_findings": 0,
-            }
-            mode = "rules-fallback"
         except (APIError, json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError, RuntimeError) as exc:
             llm_status = {
                 "state": "failed",
@@ -243,7 +374,7 @@ def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
     }
     return {
         "mode": mode,
-        "model": primary if os.getenv("OPENROUTER_API_KEY") else None,
+        "model": primary if openrouter_enabled() else None,
         "summary": {"total": len(findings), "rule_findings": len(rule_findings), **counts},
         "findings": findings,
         "llm_status": llm_status,
