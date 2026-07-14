@@ -77,3 +77,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Live capability correction
 
 > Recheck the exact primary and fallback records in OpenRouter's live Models API. Both currently advertise `response_format` and `structured_outputs`, which is stronger evidence than the general guide's incomplete example list. Upgrade the request to strict JSON Schema, require providers that support the requested parameters, and keep Pydantic validation as defense in depth.
+
+## 2026-07-14 — Wire-schema review correction
+
+> The real provider call is still unexecuted and the generated Pydantic JSON Schema is not a portable strict wire contract. Separate the schemas: hand-write a closed provider schema with every property required, nullable hardware IDs, string evidence, and no pattern/length/array constraints; retain the rich Pydantic model as the post-response trust boundary. Add a recursive schema-contract test and an `integration` test that is skipped without `OPENROUTER_API_KEY`, calls the real endpoint when configured, validates all returned IDs, and prints a sanitized live result. Do not claim or paste a live success until that credentialed test actually runs.

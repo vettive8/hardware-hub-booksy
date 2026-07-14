@@ -58,9 +58,17 @@ copy .env.example .env       # Windows
 # cp .env.example .env       # macOS/Linux
 ```
 
-Set `OPENROUTER_API_KEY`, a strong `SECRET_KEY`, and optionally override `OPENROUTER_MODEL` or `OPENROUTER_FALLBACK_MODELS`, then export/load those variables before starting FastAPI. The default primary is `anthropic/claude-haiku-4.5`, with `google/gemini-3.1-flash-lite` as a cross-vendor fallback. This is a small structured-extraction task, so a small, fast model is a better fit than an expensive long-horizon reasoning model.
+Set `OPENROUTER_API_KEY`, a strong `SECRET_KEY`, and optionally override `OPENROUTER_MODEL` or `OPENROUTER_FALLBACK_MODELS`. FastAPI loads the root `.env` file at startup. The default primary is `anthropic/claude-haiku-4.5`, with `google/gemini-3.1-flash-lite` as a cross-vendor fallback. This is a small structured-extraction task, so a small, fast model is a better fit than an expensive long-horizon reasoning model.
 
-Deterministic findings are always the safety floor. Model output is additive only: OpenRouter is asked to enforce a strict JSON Schema, the result is parsed again through Pydantic, constrained to four severities, checked against IDs present in the source seed, and deduplicated against rule findings with rules winning. Invalid output is discarded and reported through `llm_status`; unknown-ID and duplicate drops are exposed through `hallucination_guard`.
+Deterministic findings are always the safety floor. Model output is additive only. The provider receives a deliberately small, portable wire schema with no unsupported constraint keywords or open objects. The response then passes through a separate, richer Pydantic trust-boundary model, is constrained to four severities, checked against IDs present in the source seed, and deduplicated against rule findings with rules winning. Invalid output is discarded and reported through `llm_status`; unknown-ID and duplicate drops are exposed through `hallucination_guard`.
+
+**Live verification status:** the real OpenRouter request has not yet been executed because no key was available during development. This is intentionally not represented as passing. After adding a key, run:
+
+```bash
+pytest -m integration -s
+```
+
+The credential-gated test prints the actual selected model, accepted LLM findings, and hallucination-guard counts. Capture that output for the final submission only after the test genuinely passes.
 
 ## Architecture
 
@@ -135,6 +143,8 @@ The required critical tests are in `tests/`:
 7. Rule/model duplicates resolve in favor of the deterministic finding.
 8. Invalid model severity/schema output discards the entire model layer safely.
 9. Damaged repair completion requires an explicit resolution note, and SQLite allocates new hardware IDs.
+10. The provider wire schema excludes unsupported constraints and closes every object.
+11. A live OpenRouter contract test validates the real response and source IDs when credentials are present; otherwise it is explicitly skipped.
 
 Run everything used before handoff:
 
@@ -205,6 +215,8 @@ The complete, contemporaneous prompt history is in [prompts.md](prompts.md).
 The real correction was not the anticipated duplicate overwrite—the loader was designed to prevent that before its first implementation. Instead, the generated admin delete route declared HTTP `204 No Content` while still using FastAPI's default JSON response behavior. FastAPI refused to import the application because a 204 response cannot carry a body. I caught it in the rental API smoke test, changed the endpoint to return an explicit empty `Response`, reran the entire flow, and committed the correction separately as `fix empty hardware delete response`. This was a useful reminder that type/status contracts deserve runtime verification even when the business logic itself looks correct.
 
 The later AI review found a more important design correction: live LLM findings replaced the deterministic audit rather than extending it. That made the least predictable component authoritative. The fix made rules permanent, treated model JSON as untrusted input, added schema/ID/deduplication guards, and exposed rejected model output in the response. I also verified the suggested OpenRouter fallback request against its official documentation and avoided repeating the primary model in the fallback array.
+
+A second review then caught the remaining gap between “the mocks pass” and “the provider accepts the request.” Generating the wire schema directly from the rich Pydantic model leaked unsupported constraints and an open-ended evidence object into the provider request. The correction separated concerns: a hand-written provider-compatible wire schema now requests simple strings and closed objects, while Pydantic retains the stronger length, pattern, enum, and result validation locally. A schema-contract test prevents those provider-incompatible keywords from returning, and a skipped-unless-credentialed integration test is the final proof gate. This is the strongest correction story in the project because it demonstrates verifying AI-generated integration code against the real external contract instead of trusting green mocks.
 
 ### Design justification
 
