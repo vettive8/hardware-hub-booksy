@@ -29,3 +29,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Tool and stack choice stated up front
 
 > Use Codex as the AI engineering partner. Build the preferred stack: Python 3.12 + FastAPI + SQLite for the API and Vue 3 + Vite for the UI. Preserve every malformed seed record in an import report, reject invalid rows from the operational database, and make duplicate IDs a hard, observable error. Follow the supplied Figma wireframe's restrained gray sidebar/card/table visual language. Do not commit the confidential assessment PDF.
+
+## 2026-07-14 — Data boundary prompt
+
+> Design the seed loader before the CRUD routes. Validate IDs, required fields, allowed statuses, ISO dates, future dates, likely brand typos, and damage language. Reject structurally unsafe rows, retain accepted-but-suspicious rows with explicit safety flags, and persist every issue with the original raw JSON so the audit is explainable. Never use an ID-keyed dictionary that could silently overwrite duplicate id 4.
