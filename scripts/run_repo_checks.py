@@ -19,10 +19,18 @@ def run(label: str, command: list[str], cwd: Path = ROOT) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Hardware Hub repository checks")
     parser.add_argument("--mode", choices=("quick", "full"), default="quick")
+    parser.add_argument(
+        "--include-integration",
+        action="store_true",
+        help="Include credential-gated provider tests that may spend OpenRouter credits",
+    )
     args = parser.parse_args()
     npm = shutil.which("npm.cmd") or shutil.which("npm") or "npm"
 
-    run("backend tests", [sys.executable, "-m", "pytest"])
+    pytest_command = [sys.executable, "-m", "pytest"]
+    if not args.include_integration:
+        pytest_command.extend(["-m", "not integration"])
+    run("backend tests", pytest_command)
     run("frontend build", [npm, "run", "build"], ROOT / "frontend")
     if args.mode == "full":
         run("dependency audit", [npm, "audit", "--audit-level=moderate"], ROOT / "frontend")
@@ -32,4 +40,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
