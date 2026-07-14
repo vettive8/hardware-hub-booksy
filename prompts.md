@@ -53,3 +53,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Frontend prompt
 
 > Translate the supplied Figma prototype into Vue 3: quiet gray surfaces, fixed sidebar, compact data table, card-based metrics, and a focused split-screen login. Implement responsive login, inventory search/filter/sort, rent/return actions, personal rentals, admin account/hardware forms, repair/delete controls, visible errors, and a first-class AI audit screen. Favor accessible native controls and clear safety-disabled states over decorative animation.
+
+## 2026-07-14 — Critical tests prompt
+
+> Add API-level tests for the three scored invariants: damage language creates a safety hold that blocks rent; an In Use item cannot be rented; and a duplicate seed ID is rejected without replacing the first record. Add one happy-path rent/return test to prove the guards do not prevent valid transitions. Assert response semantics and persisted state, not implementation details.
