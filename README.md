@@ -2,7 +2,7 @@
 
 An AI-native internal hardware rental system built for the Booksy Early Careers technical assessment. Hardware Hub combines guarded inventory workflows with an explainable auditor that catches unsafe or contradictory data before it reaches employees.
 
-**Stack:** Python 3.12 · FastAPI · SQLite · Vue 3 · Vite · OpenAI Responses API (optional)
+**Stack:** Python 3.12 · FastAPI · SQLite · Vue 3 · Vite · OpenRouter through the OpenAI-compatible SDK (optional)
 
 ## Product tour
 
@@ -51,14 +51,16 @@ The database is created and seeded on first API startup. Delete `hardware_hub.db
 
 ### Optional live LLM audit
 
-The auditor is fully demonstrable without credentials using its deterministic safety engine. To additionally send inventory evidence to OpenAI:
+The auditor is fully demonstrable without credentials using its deterministic safety engine. To additionally run an additive model review through OpenRouter:
 
 ```bash
 copy .env.example .env       # Windows
 # cp .env.example .env       # macOS/Linux
 ```
 
-Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and a strong `SECRET_KEY`, then export/load those variables before starting FastAPI. Live mode uses the OpenAI Responses API; on a provider, schema, or network failure it fails safely to deterministic mode and labels that mode in the UI. Inventory is never silently declared clean because an LLM is unavailable.
+Set `OPENROUTER_API_KEY`, a strong `SECRET_KEY`, and optionally override `OPENROUTER_MODEL` or `OPENROUTER_FALLBACK_MODELS`, then export/load those variables before starting FastAPI. The default primary is `anthropic/claude-haiku-4.5`, with `google/gemini-3.1-flash-lite` as a cross-vendor fallback. This is a small structured-extraction task, so a small, fast model is a better fit than an expensive long-horizon reasoning model.
+
+Deterministic findings are always the safety floor. Model output is additive only: OpenRouter is asked to enforce a strict JSON Schema, the result is parsed again through Pydantic, constrained to four severities, checked against IDs present in the source seed, and deduplicated against rule findings with rules winning. Invalid output is discarded and reported through `llm_status`; unknown-ID and duplicate drops are exposed through `hallucination_guard`.
 
 ## Architecture
 
@@ -73,7 +75,7 @@ Vue workspace ── bearer token ──> FastAPI routes
               └───────────────────────┬───────────────────────┘
                                       │
                            AI Inventory Auditor
-                         OpenAI or local safety rules
+                    permanent rules + optional OpenRouter review
 ```
 
 The API and Vue build ship as one Docker service. SQLite lives at `DATABASE_PATH`; Railway should attach a persistent volume at `/data`.
@@ -103,7 +105,7 @@ The first load therefore inserts **8 records**, rejects **3**, and persists **9 
 - `In Use → Available` is the normal return transition; only the assigned user or an admin may return it.
 - A damaged return moves to `Repair`, never back to the rentable pool.
 - In Use hardware cannot be deleted or toggled into repair.
-- Completing repair is the explicit action that clears the damage hold and restores availability.
+- Completing a damaged repair requires an explicit service note; only that resolution clears the damage hold and restores availability.
 
 ## API surface
 
@@ -128,6 +130,11 @@ The required critical tests are in `tests/`:
 2. Hardware already In Use cannot be rented.
 3. A duplicate seed ID is rejected without overwriting the original.
 4. A valid rent/return flow records owner and state correctly.
+5. Without an API key, all nine deterministic audit findings remain present.
+6. Unknown model-generated hardware IDs are dropped and counted.
+7. Rule/model duplicates resolve in favor of the deterministic finding.
+8. Invalid model severity/schema output discards the entire model layer safely.
+9. Damaged repair completion requires an explicit resolution note, and SQLite allocates new hardware IDs.
 
 Run everything used before handoff:
 
@@ -146,7 +153,7 @@ docker build -t hardware-hub .
 docker run --rm -p 8000:8000 -e SECRET_KEY=change-me hardware-hub
 ```
 
-Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach a volume at `/data`, and set `SECRET_KEY`; `OPENAI_API_KEY` is optional.
+Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach a volume at `/data`, and set `SECRET_KEY`; `OPENROUTER_API_KEY` is optional.
 
 ## Implementation status and trade-offs
 
@@ -156,7 +163,7 @@ Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach 
 - Seed validation with rejected-row evidence and duplicate protection.
 - Rent, return, add, delete, and repair transitions with business guards.
 - Vue login, dashboard, sorting/filtering, personal rentals, admin panel, and responsive layout.
-- Deterministic and OpenAI-backed inventory audit modes.
+- Permanent deterministic audit findings plus schema-validated, additive OpenRouter findings.
 - Critical API tests, reproducible builds, dependency audit, and Docker packaging.
 
 ### ⚡ Shortcuts and “hacks”
@@ -166,7 +173,7 @@ Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach 
 | Bearer token in browser local storage | Keeps the two-process Vue/FastAPI demo small and inspectable | Secure, SameSite, HttpOnly session cookie; CSRF protection; rotation/revocation |
 | SQLite and in-process seeding | Portable, zero-service review environment | PostgreSQL migrations, managed backups, connection pooling, multiple workers |
 | Keyword damage classifier as guaranteed fallback | Deterministic demo catches all supplied safety traps without an API key | Evaluated classifier/policy engine, confidence thresholds, human resolution workflow |
-| Synchronous OpenAI audit request | Inventory is tiny and a reviewer expects immediate feedback | Background job, timeout/retry budget, persisted audit runs and cost/latency telemetry |
+| Synchronous OpenRouter audit request | Inventory is tiny and a reviewer expects immediate feedback | Background job, timeout/retry budget, persisted audit runs and cost/latency telemetry |
 | Seeded demo passwords | Makes a public assessment immediately reviewable | One-time bootstrap flow, secret manager, reset/MFA, forced password rotation |
 
 ### ⚠️ Partial or missing
@@ -188,7 +195,7 @@ Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach 
 
 - **Codex (GPT-5)** drove repository inspection, architecture, implementation, debugging, testing, and the incremental commit trail. The assignment suggested Claude Code; Codex was the available equivalent, and that substitution is stated rather than disguised.
 - **Figma published prototype** was inspected for layout vocabulary: gray navigation, cards, compact tables, centered login, and restrained status treatments. The UI remodel adds stronger Booksy-like editorial contrast and makes the auditor a first-class destination.
-- **OpenAI official developer guidance** informed the optional Responses API integration and explicit model configuration.
+- **OpenRouter official routing and structured-output documentation** informed the primary/fallback model chain, JSON mode, and the explicit validation boundary.
 - **pytest, FastAPI TestClient, Vite, npm audit, and Git** supplied deterministic verification and visible delivery history.
 
 The complete, contemporaneous prompt history is in [prompts.md](prompts.md).
@@ -196,6 +203,8 @@ The complete, contemporaneous prompt history is in [prompts.md](prompts.md).
 ### The correction
 
 The real correction was not the anticipated duplicate overwrite—the loader was designed to prevent that before its first implementation. Instead, the generated admin delete route declared HTTP `204 No Content` while still using FastAPI's default JSON response behavior. FastAPI refused to import the application because a 204 response cannot carry a body. I caught it in the rental API smoke test, changed the endpoint to return an explicit empty `Response`, reran the entire flow, and committed the correction separately as `fix empty hardware delete response`. This was a useful reminder that type/status contracts deserve runtime verification even when the business logic itself looks correct.
+
+The later AI review found a more important design correction: live LLM findings replaced the deterministic audit rather than extending it. That made the least predictable component authoritative. The fix made rules permanent, treated model JSON as untrusted input, added schema/ID/deduplication guards, and exposed rejected model output in the response. I also verified the suggested OpenRouter fallback request against its official documentation and avoided repeating the primary model in the fallback array.
 
 ### Design justification
 

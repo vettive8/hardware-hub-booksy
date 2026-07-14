@@ -65,3 +65,15 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Documentation prompt
 
 > Write the README as an engineering handoff and decision record, not a feature checklist. Include reproducible setup, demo access, architecture, API surface, exact seed outcomes and every caught trap, rental invariants, tests, deployment, fully implemented work, shortcuts with why/future, partial work, a prioritized 24-hour roadmap, tooling, Figma justification, prompt trail, and the real FastAPI 204 correction. Be explicit that Codex—not Claude Code—was used and that OpenAI mode is optional and labeled.
+
+## 2026-07-14 — Auditor hardening review
+
+> Rework the AI Inventory Auditor. Deterministic findings must always run and remain the safety floor; the LLM may only add findings. Merge by `(hardware_id, code)`, label sources, and let rules win duplicates. Parse model output through Pydantic, discard an invalid model layer with an explicit status, reject IDs absent from the source seed, and surface hallucination-drop counts. Move the optional provider to OpenRouter with a small primary model and cross-vendor fallback, zero temperature, JSON output, updated environment variables, documentation, and regression tests. Also remove application-side `MAX(id) + 1` allocation and require a deliberate service-note workflow before repair completion clears damage.
+
+## 2026-07-14 — Verification correction
+
+> Verify the reviewer-proposed provider call against OpenRouter's official documentation before coding it. The docs establish that `model` is attempted first and `extra_body.models` supplies later fallbacks, so do not repeat the primary in that array. Use JSON mode plus strict application validation because the chosen primary is not listed among the models guaranteed to support strict JSON Schema outputs.
+
+## 2026-07-14 — Live capability correction
+
+> Recheck the exact primary and fallback records in OpenRouter's live Models API. Both currently advertise `response_format` and `structured_outputs`, which is stronger evidence than the general guide's incomplete example list. Upgrade the request to strict JSON Schema, require providers that support the requested parameters, and keep Pydantic validation as defense in depth.
