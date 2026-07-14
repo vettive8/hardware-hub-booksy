@@ -45,3 +45,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Correction prompt (recorded when it happened)
 
 > The API import failed because the generated delete endpoint combined status 204 with FastAPI's default JSON response behavior. Correct it by using an explicit empty `Response`, then rerun the complete rental smoke flow before continuing. Document this actual framework-contract mistake instead of claiming the anticipated duplicate-overwrite scenario happened.
+
+## 2026-07-14 — AI Inventory Auditor prompt
+
+> Build an explainable auditor that sends accepted inventory plus the persisted rejected-row evidence to the OpenAI Responses API when an API key is present. Require JSON findings grounded in evidence. Keep a deterministic rules audit as an offline and failure fallback so a reviewer can always see the duplicate ID, 2027 date, Appel/odd-date row, Unknown-status row, and both damage/status contradictions. Clearly label which mode produced the result; never pretend the fallback was an LLM response.

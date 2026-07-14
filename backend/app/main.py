@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
+from .auditor import run_audit
 from .database import get_db, initialize_database
 from .schemas import HardwareCreate, HardwareOut, LoginRequest, UserCreate
 from .seed import DAMAGE_TERMS, ensure_seeded
@@ -261,3 +262,11 @@ def my_rentals(
         (user["id"],),
     ).fetchall()
     return [{**serialize_hardware(row), "rental_id": row["rental_id"], "rented_at": row["rented_at"]} for row in rows]
+
+
+@app.post("/api/audit")
+def audit_inventory(
+    _: Annotated[sqlite3.Row, Depends(current_user)],
+    db: Annotated[sqlite3.Connection, Depends(get_db)],
+) -> dict:
+    return run_audit(db)
