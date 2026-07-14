@@ -269,7 +269,7 @@ onMounted(restoreSession)
         <section v-if="audit" class="findings">
           <article v-for="(finding, index) in audit.findings" :key="index" class="finding card" :class="finding.severity">
             <span class="finding-icon">{{ severityIcon(finding.severity) }}</span>
-            <div><div class="finding-meta"><span>{{ finding.severity }}</span><small>{{ finding.source }} · ID {{ finding.hardware_id ?? 'n/a' }}</small></div><h3>{{ finding.title }}</h3><p>{{ finding.explanation }}</p><code>{{ finding.evidence.name || 'Unknown record' }} · {{ finding.evidence.status || 'no status' }}</code></div>
+            <div><div class="finding-meta"><span>{{ finding.severity }}</span><small>{{ finding.source }} · ID {{ finding.hardware_id ?? 'n/a' }}</small></div><h3>{{ finding.title }}</h3><p>{{ finding.explanation }}</p><code>{{ typeof finding.evidence === 'string' ? finding.evidence : `${finding.evidence.name || 'Unknown record'} · ${finding.evidence.status || 'no status'}` }}</code></div>
           </article>
         </section>
       </div>

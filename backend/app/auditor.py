@@ -3,13 +3,43 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from openai import APIError, OpenAI
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 Severity = Literal["critical", "high", "medium", "low"]
-AUDITOR_INSTRUCTIONS = """You are an additive inventory reviewer. Inspect accepted inventory and rejected/flagged seed-import evidence. Return one JSON object with a `findings` array. Each finding must use only evidence supplied here and contain code, severity (critical, high, medium, or low), hardware_id (an ID present in the supplied source or null), title, explanation, and an evidence object. Look for contradictions or safety concerns not already obvious. Never claim the inventory is clean and never invent identifiers or facts."""
+AUDITOR_INSTRUCTIONS = """You are an additive inventory reviewer. Inspect accepted inventory and rejected/flagged seed-import evidence. Return one JSON object with a `findings` array. Each finding must use only evidence supplied here and contain code, severity (critical, high, medium, or low), hardware_id (an ID present in the supplied source or null), title, explanation, and evidence as a short text quote or fact from the supplied data. Look for contradictions or safety concerns not already obvious. Never claim the inventory is clean and never invent identifiers or facts."""
+
+# Provider grammars support a smaller JSON Schema subset than Pydantic. Keep this
+# deliberately boring and portable; LLMAuditResponse remains the richer trust boundary.
+WIRE_AUDIT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Lowercase snake_case finding category."},
+                    "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+                    "hardware_id": {
+                        "anyOf": [{"type": "integer"}, {"type": "null"}],
+                        "description": "An identifier present in the supplied source, or null.",
+                    },
+                    "title": {"type": "string"},
+                    "explanation": {"type": "string"},
+                    "evidence": {"type": "string", "description": "A short quote or fact from supplied data."},
+                },
+                "required": ["code", "severity", "hardware_id", "title", "explanation", "evidence"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["findings"],
+    "additionalProperties": False,
+}
 
 TITLE_BY_CODE = {
     "duplicate_id": "Duplicate identifier rejected",
@@ -33,13 +63,19 @@ class LLMFinding(BaseModel):
     hardware_id: int | None = None
     title: str = Field(min_length=2, max_length=160)
     explanation: str = Field(min_length=2, max_length=1000)
-    evidence: dict[str, Any]
+    evidence: str = Field(min_length=2, max_length=500)
 
 
 class LLMAuditResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     findings: list[LLMFinding] = Field(max_length=50)
+
+
+@dataclass(frozen=True)
+class ProviderAuditResult:
+    payload: dict[str, Any]
+    model: str
 
 
 def _severity(code: str, imported_severity: str) -> Severity:
@@ -100,7 +136,7 @@ def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[di
     return findings
 
 
-def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> ProviderAuditResult:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
@@ -119,7 +155,7 @@ def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> dict[str, An
             "json_schema": {
                 "name": "inventory_audit",
                 "strict": True,
-                "schema": LLMAuditResponse.model_json_schema(),
+                "schema": WIRE_AUDIT_SCHEMA,
             },
         },
         extra_body=routing,
@@ -131,7 +167,7 @@ def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> dict[str, An
     content = completion.choices[0].message.content
     if not content:
         raise ValueError("OpenRouter returned an empty audit")
-    return json.loads(content)
+    return ProviderAuditResult(payload=json.loads(content), model=completion.model)
 
 
 def merge_findings(
@@ -173,8 +209,8 @@ def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
 
     if os.getenv("OPENROUTER_API_KEY"):
         try:
-            raw_response = request_llm_audit(evidence)
-            validated = LLMAuditResponse.model_validate(raw_response)
+            provider_result = request_llm_audit(evidence)
+            validated = LLMAuditResponse.model_validate(provider_result.payload)
             findings, unknown_drops, duplicate_drops = merge_findings(
                 rule_findings, validated, source_hardware_ids(evidence)
             )
@@ -184,6 +220,7 @@ def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
                 "message": "Model findings passed provider and application schemas, ID checks, and rule-first deduplication.",
                 "accepted_findings": len(findings) - len(rule_findings),
             }
+            primary = provider_result.model
             mode = "rules+llm"
         except ValidationError as exc:
             llm_status = {

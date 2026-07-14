@@ -9,12 +9,15 @@ from typing import Annotated, Literal
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 
 from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
 from .auditor import run_audit
 from .database import get_db, initialize_database
 from .schemas import HardwareCreate, HardwareOut, LoginRequest, RepairUpdate, UserCreate
 from .seed import DAMAGE_TERMS, ensure_seeded
+
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 
 def serialize_hardware(row: sqlite3.Row) -> dict:

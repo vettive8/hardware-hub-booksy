@@ -1,3 +1,8 @@
+import json
+import os
+
+import pytest
+
 from backend.app import auditor
 
 
@@ -20,15 +25,16 @@ def test_unknown_llm_ids_are_dropped_and_rule_duplicates_win(client, member_head
     monkeypatch.setattr(
         auditor,
         "request_llm_audit",
-        lambda _evidence: {
-            "findings": [
+        lambda _evidence: auditor.ProviderAuditResult(
+            model="anthropic/claude-haiku-4.5",
+            payload={"findings": [
                 {
                     "code": "invented_device_issue",
                     "severity": "high",
                     "hardware_id": 999,
                     "title": "Invented device",
                     "explanation": "This identifier was not supplied.",
-                    "evidence": {"id": 999},
+                    "evidence": "Invented identifier 999",
                 },
                 {
                     "code": "duplicate_id",
@@ -36,7 +42,7 @@ def test_unknown_llm_ids_are_dropped_and_rule_duplicates_win(client, member_head
                     "hardware_id": 4,
                     "title": "Duplicate restatement",
                     "explanation": "The rule engine already proved this.",
-                    "evidence": {"id": 4},
+                    "evidence": "Duplicate id 4",
                 },
                 {
                     "code": "warranty_gap",
@@ -44,10 +50,10 @@ def test_unknown_llm_ids_are_dropped_and_rule_duplicates_win(client, member_head
                     "hardware_id": 1,
                     "title": "Warranty information absent",
                     "explanation": "No warranty metadata is present for this accepted item.",
-                    "evidence": {"name": "Apple iPhone 13 Pro Max"},
+                    "evidence": "Apple iPhone 13 Pro Max has no warranty field",
                 },
-            ]
-        },
+            ]},
+        ),
     )
 
     body = client.post("/api/audit", headers=member_headers).json()
@@ -68,18 +74,19 @@ def test_invalid_llm_schema_fails_back_to_rules(client, member_headers, monkeypa
     monkeypatch.setattr(
         auditor,
         "request_llm_audit",
-        lambda _evidence: {
-            "findings": [
+        lambda _evidence: auditor.ProviderAuditResult(
+            model="anthropic/claude-haiku-4.5",
+            payload={"findings": [
                 {
                     "code": "bad_severity",
                     "severity": "catastrophic",
                     "hardware_id": 1,
                     "title": "Invalid severity",
                     "explanation": "This must fail the allowed severity enum.",
-                    "evidence": {},
+                    "evidence": "Invalid severity fixture",
                 }
-            ]
-        },
+            ]},
+        ),
     )
 
     body = client.post("/api/audit", headers=member_headers).json()
@@ -88,3 +95,47 @@ def test_invalid_llm_schema_fails_back_to_rules(client, member_headers, monkeypa
     assert body["summary"]["total"] == 9
     assert body["llm_status"]["state"] == "invalid_response"
 
+
+def test_wire_schema_uses_portable_strict_subset():
+    unsupported = {"pattern", "minLength", "maxLength", "minItems", "maxItems", "default"}
+
+    def assert_schema(node):
+        if isinstance(node, dict):
+            assert unsupported.isdisjoint(node)
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False
+                assert set(node.get("required", [])) == set(node.get("properties", {}))
+            for value in node.values():
+                assert_schema(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_schema(value)
+
+    assert_schema(auditor.WIRE_AUDIT_SCHEMA)
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not os.getenv("OPENROUTER_API_KEY"), reason="OPENROUTER_API_KEY is not configured")
+def test_live_openrouter_audit_validates_and_uses_source_ids(client, member_headers):
+    response = client.post("/api/audit", headers=member_headers)
+    body = response.json()
+    source_ids = {1, 2, 3, 4, 5, 6, 7, 9, 10, 11}
+
+    assert response.status_code == 200
+    assert body["mode"] == "rules+llm", body["llm_status"]
+    assert body["llm_status"]["state"] == "succeeded"
+    assert all(
+        finding["hardware_id"] is None or finding["hardware_id"] in source_ids
+        for finding in body["findings"]
+    )
+    print(
+        json.dumps(
+            {
+                "model": body["model"],
+                "llm_status": body["llm_status"],
+                "llm_findings": [finding for finding in body["findings"] if finding["source"] == "llm"],
+                "hallucination_guard": body["hallucination_guard"],
+            },
+            indent=2,
+        )
+    )
