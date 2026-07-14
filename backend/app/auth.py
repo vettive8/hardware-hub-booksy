@@ -14,8 +14,33 @@ from .database import connect, get_db
 
 ALGORITHM = "HS256"
 TOKEN_TTL_MINUTES = 8 * 60
+DEVELOPMENT_SECRET = "local-development-secret-change-me"
 passwords = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
+
+
+def is_production() -> bool:
+    return os.getenv("APP_ENV", "development").strip().casefold() == "production"
+
+
+def demo_mode() -> bool:
+    """Seeded demo accounts. Off by default in production, on everywhere else."""
+    configured = os.getenv("DEMO_MODE")
+    if configured is None:
+        return not is_production()
+    return configured.strip().casefold() in {"1", "true", "yes"}
+
+
+def secret_key() -> str:
+    """A public demo is still production. The two controls are independent: DEMO_MODE
+    decides whether demo accounts exist, APP_ENV decides whether a real secret is
+    mandatory. A deployed instance signing tokens with a secret published in a public
+    repository would let anyone forge an admin session.
+    """
+    key = os.getenv("SECRET_KEY", DEVELOPMENT_SECRET)
+    if is_production() and key == DEVELOPMENT_SECRET:
+        raise RuntimeError("APP_ENV=production requires SECRET_KEY to be set to a real secret")
+    return key
 
 
 def hash_password(password: str) -> str:
@@ -35,10 +60,12 @@ def create_access_token(user: sqlite3.Row) -> str:
         "iat": now,
         "exp": now + timedelta(minutes=TOKEN_TTL_MINUTES),
     }
-    return jwt.encode(payload, os.getenv("SECRET_KEY", "local-development-secret-change-me"), algorithm=ALGORITHM)
+    return jwt.encode(payload, secret_key(), algorithm=ALGORITHM)
 
 
 def ensure_default_users(db_path=None) -> None:
+    if not demo_mode():
+        return
     defaults = (
         ("Admin User", "admin@booksy.com", "Admin123!", "admin"),
         ("Demo Member", "member@booksy.com", "Member123!", "user"),
@@ -64,11 +91,7 @@ def current_user(
     if credentials is None:
         raise unauthorized
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            os.getenv("SECRET_KEY", "local-development-secret-change-me"),
-            algorithms=[ALGORITHM],
-        )
+        payload = jwt.decode(credentials.credentials, secret_key(), algorithms=[ALGORITHM])
         user_id = int(payload["sub"])
     except (JWTError, KeyError, TypeError, ValueError):
         raise unauthorized from None

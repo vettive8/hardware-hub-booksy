@@ -11,7 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
-from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
+from .auth import (
+    admin_user,
+    create_access_token,
+    current_user,
+    demo_mode,
+    ensure_default_users,
+    hash_password,
+    secret_key,
+    verify_password,
+)
 from .auditor import run_audit
 from .database import get_db, initialize_database
 from .schemas import HardwareCreate, HardwareOut, LoginRequest, RepairUpdate, UserCreate
@@ -28,6 +37,7 @@ def serialize_hardware(row: sqlite3.Row) -> dict:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    secret_key()  # refuses to start in production while still signing with the dev secret
     initialize_database()
     ensure_default_users()
     ensure_seeded()
@@ -52,6 +62,14 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+def config() -> dict[str, bool]:
+    """Public, non-secret runtime flags. The Vue bundle is compiled before deployment,
+    so it cannot read the server's environment; it asks for it instead.
+    """
+    return {"demo_mode": demo_mode()}
 
 
 @app.post("/api/auth/login")
