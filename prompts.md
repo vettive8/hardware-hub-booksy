@@ -57,3 +57,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Critical tests prompt
 
 > Add API-level tests for the three scored invariants: damage language creates a safety hold that blocks rent; an In Use item cannot be rented; and a duplicate seed ID is rejected without replacing the first record. Add one happy-path rent/return test to prove the guards do not prevent valid transitions. Assert response semantics and persisted state, not implementation details.
+
+## 2026-07-14 — Deployment prompt
+
+> Package the Vue production build and FastAPI API as one portable Docker service. Serve built assets only when present so Vite development still works, persist SQLite at a configurable DATABASE_PATH, expose a health check, and add Railway configuration. Keep the confidential assessment PDF out of both Git and Docker contexts.

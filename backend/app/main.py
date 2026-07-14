@@ -3,10 +3,12 @@ from __future__ import annotations
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
 from .auditor import run_audit
@@ -270,3 +272,8 @@ def audit_inventory(
     db: Annotated[sqlite3.Connection, Depends(get_db)],
 ) -> dict:
     return run_audit(db)
+
+
+frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
