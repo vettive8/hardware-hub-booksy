@@ -12,7 +12,9 @@ const notice = reactive({ text: '', kind: 'success' })
 const filters = reactive({ search: '', status: 'All', sort: 'name' })
 const demoMode = ref(false)
 const loginForm = reactive({ email: '', password: '' })
-const deviceForm = reactive({ name: '', brand: '', purchase_date: '', status: 'Available', notes: '' })
+const CATEGORIES = ['Laptop', 'Mobile', 'Tablet', 'Monitor', 'Accessory']
+const emptyDevice = { name: '', serial_number: '', brand: '', category: '', purchase_date: '', status: 'Available', notes: '' }
+const deviceForm = reactive({ ...emptyDevice })
 const userForm = reactive({ name: '', email: '', password: '', role: 'user' })
 
 const nav = computed(() => [
@@ -121,8 +123,14 @@ async function openView(next) {
 async function addDevice() {
   busy.value = true
   try {
-    await api('/hardware', { method: 'POST', body: JSON.stringify({ ...deviceForm, purchase_date: deviceForm.purchase_date || null, notes: deviceForm.notes || null }) })
-    Object.assign(deviceForm, { name: '', brand: '', purchase_date: '', status: 'Available', notes: '' })
+    await api('/hardware', { method: 'POST', body: JSON.stringify({
+      ...deviceForm,
+      serial_number: deviceForm.serial_number || null,
+      category: deviceForm.category || null,
+      purchase_date: deviceForm.purchase_date || null,
+      notes: deviceForm.notes || null,
+    }) })
+    Object.assign(deviceForm, emptyDevice)
     await loadHardware()
     flash('Hardware added')
   } catch (error) { flash(error.message, 'error') } finally { busy.value = false }
@@ -256,7 +264,7 @@ onMounted(() => {
               <thead><tr><th>Device</th><th>Brand</th><th>Purchased</th><th>Status</th><th>Assigned to</th><th></th></tr></thead>
               <tbody>
                 <tr v-for="item in shownHardware" :key="item.id">
-                  <td><div class="device-cell"><span class="device-icon">{{ item.name.includes('Mac') || item.name.includes('Dell') ? '▰' : item.name.includes('Phone') || item.name.includes('Galaxy') ? '▯' : '◇' }}</span><div><strong>{{ item.name }}</strong><small>#{{ String(item.id).padStart(3, '0') }}<span v-if="item.is_damaged" class="damage-note"> · safety hold</span></small></div></div></td>
+                  <td><div class="device-cell"><span class="device-icon">{{ item.name.includes('Mac') || item.name.includes('Dell') ? '▰' : item.name.includes('Phone') || item.name.includes('Galaxy') ? '▯' : '◇' }}</span><div><strong>{{ item.name }}</strong><small>#{{ String(item.id).padStart(3, '0') }}<span v-if="item.serial_number"> · {{ item.serial_number }}</span><span v-if="item.category"> · {{ item.category }}</span><span v-if="item.is_damaged" class="damage-note"> · safety hold</span></small></div></div></td>
                   <td>{{ item.brand }}</td><td>{{ item.purchase_date || '—' }}</td>
                   <td><span class="status" :class="statusClass(item)"><i></i>{{ item.is_damaged ? 'Damaged' : item.status }}</span></td>
                   <td class="muted-cell">{{ item.assigned_to || '—' }}</td>
@@ -299,7 +307,7 @@ onMounted(() => {
       <div v-else-if="view === 'admin'" class="content admin-page">
         <section class="hero-row"><div><span class="kicker">Command center</span><h2>Manage the fleet.<br><em>Protect the team.</em></h2></div></section>
         <section class="admin-grid">
-          <form class="card form-card" @submit.prevent="addDevice"><div class="card-head"><div><h3>Add hardware</h3><p>Create a new inventory record</p></div><span class="step">01</span></div><div class="form-grid"><label>Device name<input v-model="deviceForm.name" required placeholder="MacBook Pro 16"></label><label>Brand<input v-model="deviceForm.brand" required placeholder="Apple"></label><label>Purchase date<input v-model="deviceForm.purchase_date" type="date"></label><label>Status<select v-model="deviceForm.status"><option>Available</option><option>Repair</option></select></label><label class="span-2">Notes<textarea v-model="deviceForm.notes" placeholder="Condition or service notes"></textarea></label></div><button class="button primary" :disabled="busy">Add hardware →</button></form>
+          <form class="card form-card" @submit.prevent="addDevice"><div class="card-head"><div><h3>Add hardware</h3><p>Create a new inventory record</p></div><span class="step">01</span></div><div class="form-grid"><label>Device name<input v-model="deviceForm.name" required placeholder="e.g., MacBook Pro 16"></label><label>Serial number<input v-model="deviceForm.serial_number" placeholder="e.g., MBP-2024-001"></label><label>Brand<input v-model="deviceForm.brand" required placeholder="e.g., Apple"></label><label>Category<select v-model="deviceForm.category"><option value="" disabled>Select a category</option><option v-for="cat in CATEGORIES" :key="cat" :value="cat">{{ cat }}</option></select></label><label>Purchase date<input v-model="deviceForm.purchase_date" type="date"></label><label>Status<select v-model="deviceForm.status"><option>Available</option><option>Repair</option></select></label><label class="span-2">Notes<textarea v-model="deviceForm.notes" placeholder="Condition or service notes"></textarea></label></div><button class="button primary" :disabled="busy">Add hardware →</button></form>
           <form class="card form-card" @submit.prevent="addUser"><div class="card-head"><div><h3>Create account</h3><p>Accounts are admin-issued only</p></div><span class="step">02</span></div><div class="form-grid"><label>Full name<input v-model="userForm.name" required placeholder="Jamie Doe"></label><label>Work email<input v-model="userForm.email" required type="email" placeholder="j.doe@booksy.com"></label><label>Password<input v-model="userForm.password" required type="password" minlength="8" placeholder="Minimum 8 characters"></label><label>Role<select v-model="userForm.role"><option value="user">User</option><option value="admin">Admin</option></select></label></div><button class="button primary" :disabled="busy">Create account →</button></form>
         </section>
         <section class="card manage-card"><div class="card-head"><div><h3>Fleet controls</h3><p>Repair and deletion actions are guarded by current state</p></div></div><div class="manage-list"><div v-for="item in hardware" :key="item.id" class="manage-row"><div class="device-cell"><span class="device-icon">◇</span><div><strong>{{ item.name }}</strong><small>{{ item.brand }} · {{ item.status }}</small></div></div><div><button class="button small secondary" @click="repair(item)">{{ item.status === 'Repair' ? 'Complete repair' : 'Send to repair' }}</button><button class="text-button danger-text" @click="removeDevice(item)">Delete</button></div></div></div></section>

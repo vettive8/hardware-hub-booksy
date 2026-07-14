@@ -37,6 +37,8 @@ def initialize_database(path: Path | None = None) -> None:
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 brand TEXT NOT NULL,
+                serial_number TEXT,
+                category TEXT CHECK (category IN ('Laptop', 'Mobile', 'Tablet', 'Monitor', 'Accessory')),
                 purchase_date TEXT,
                 status TEXT NOT NULL CHECK (status IN ('Available', 'In Use', 'Repair')),
                 notes TEXT,
@@ -70,6 +72,21 @@ def initialize_database(path: Path | None = None) -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """
+        )
+        # CREATE TABLE IF NOT EXISTS never alters an existing table, so databases
+        # created before serial_number/category existed need the columns added here.
+        existing = {row["name"] for row in db.execute("PRAGMA table_info(hardware)")}
+        if "serial_number" not in existing:
+            db.execute("ALTER TABLE hardware ADD COLUMN serial_number TEXT")
+        if "category" not in existing:
+            db.execute(
+                "ALTER TABLE hardware ADD COLUMN category TEXT "
+                "CHECK (category IN ('Laptop', 'Mobile', 'Tablet', 'Monitor', 'Accessory'))"
+            )
+        # The index depends on serial_number, so it can only exist after the migration.
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS unique_serial_number "
+            "ON hardware(serial_number) WHERE serial_number IS NOT NULL"
         )
 
 

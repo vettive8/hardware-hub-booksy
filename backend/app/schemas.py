@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 HardwareStatus = Literal["Available", "In Use", "Repair"]
+HardwareCategory = Literal["Laptop", "Mobile", "Tablet", "Monitor", "Accessory"]
 
 
 class LoginRequest(BaseModel):
@@ -22,6 +23,8 @@ class UserCreate(BaseModel):
 class HardwareCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     brand: str = Field(min_length=1, max_length=80)
+    serial_number: str | None = Field(default=None, min_length=2, max_length=80)
+    category: HardwareCategory | None = None
     purchase_date: str | None = None
     status: HardwareStatus = "Available"
     notes: str | None = None
@@ -44,6 +47,8 @@ class HardwareOut(BaseModel):
     id: int
     name: str
     brand: str
+    serial_number: str | None
+    category: HardwareCategory | None
     purchase_date: str | None
     status: HardwareStatus
     notes: str | None

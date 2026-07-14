@@ -160,14 +160,18 @@ def create_hardware(
         if parsed > date.today():
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Purchase date cannot be in the future")
     is_damaged = any(term in (payload.notes or "").casefold() for term in DAMAGE_TERMS)
-    cursor = db.execute(
-        """
-        INSERT INTO hardware (name, brand, purchase_date, status, notes, is_damaged)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (payload.name.strip(), payload.brand.strip(), purchase_date, payload.status, payload.notes, int(is_damaged)),
-    )
-    db.commit()
+    serial = payload.serial_number.strip() if payload.serial_number else None
+    try:
+        cursor = db.execute(
+            """
+            INSERT INTO hardware (name, brand, serial_number, category, purchase_date, status, notes, is_damaged)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (payload.name.strip(), payload.brand.strip(), serial, payload.category, purchase_date, payload.status, payload.notes, int(is_damaged)),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A device with this serial number already exists") from None
     row = db.execute("SELECT * FROM hardware WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return serialize_hardware(row)
 

@@ -31,6 +31,29 @@ def test_admin_routes_reject_anonymous_callers(client):
     assert client.post("/api/hardware/1/rent").status_code == 401
 
 
+def test_serial_number_and_category_round_trip_and_serials_stay_unique(client, admin_headers):
+    device = {
+        "name": "MacBook Pro 16",
+        "brand": "Apple",
+        "serial_number": "MBP-2024-001",
+        "category": "Laptop",
+        "status": "Available",
+    }
+    created = client.post("/api/hardware", headers=admin_headers, json=device)
+    duplicate = client.post("/api/hardware", headers=admin_headers, json={**device, "name": "Another MacBook"})
+    bad_category = client.post(
+        "/api/hardware", headers=admin_headers,
+        json={**device, "serial_number": "MBP-2024-002", "category": "Spaceship"},
+    )
+
+    assert created.status_code == 201
+    assert created.json()["serial_number"] == "MBP-2024-001"
+    assert created.json()["category"] == "Laptop"
+    assert duplicate.status_code == 409
+    assert "serial number" in duplicate.json()["detail"]
+    assert bad_category.status_code == 422
+
+
 def test_cannot_rent_hardware_already_in_use(client, member_headers):
     response = client.post("/api/hardware/2/rent", headers=member_headers)
 
