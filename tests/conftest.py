@@ -23,3 +23,12 @@ def member_headers(client):
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
+
+@pytest.fixture()
+def admin_headers(client):
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@booksy.com", "password": "Admin123!"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}

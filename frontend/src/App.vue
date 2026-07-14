@@ -130,8 +130,14 @@ async function addUser() {
 }
 
 async function repair(item) {
+  let body = {}
+  if (item.status === 'Repair' && item.is_damaged) {
+    const resolutionNote = window.prompt('Describe the completed repair (required to clear the safety hold):')
+    if (resolutionNote === null) return
+    body = { resolve_damage: true, resolution_note: resolutionNote }
+  }
   try {
-    await api(`/hardware/${item.id}/repair`, { method: 'PATCH' })
+    await api(`/hardware/${item.id}/repair`, { method: 'PATCH', body: JSON.stringify(body) })
     await loadHardware()
     flash(item.status === 'Repair' ? 'Repair completed' : 'Marked for repair')
   } catch (error) { flash(error.message, 'error') }
@@ -255,10 +261,10 @@ onMounted(restoreSession)
           <button class="button light" :disabled="busy" @click="runAudit">{{ busy ? 'Auditing…' : '✦ Run again' }}</button>
         </section>
         <section v-if="audit" class="audit-summary">
-          <div><span>Audit mode</span><strong>{{ audit.mode === 'openai' ? 'OpenAI · ' + audit.model : 'Deterministic safety net' }}</strong></div>
+          <div><span>Audit mode</span><strong>{{ audit.mode === 'rules+llm' ? 'Rules + OpenRouter' : 'Deterministic safety floor' }}</strong><small>{{ audit.llm_status.message }}</small></div>
           <div><span>Total findings</span><strong>{{ audit.summary.total }}</strong></div>
           <div><span>Critical</span><strong class="critical-text">{{ audit.summary.critical }}</strong></div>
-          <div><span>High</span><strong>{{ audit.summary.high }}</strong></div>
+          <div><span>Guarded drops</span><strong>{{ audit.hallucination_guard.dropped_unknown_ids + audit.hallucination_guard.dropped_rule_duplicates }}</strong><small>Unknown IDs + duplicates</small></div>
         </section>
         <section v-if="audit" class="findings">
           <article v-for="(finding, index) in audit.findings" :key="index" class="finding card" :class="finding.severity">

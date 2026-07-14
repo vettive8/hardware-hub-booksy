@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from .auth import admin_user, create_access_token, current_user, ensure_default_users, hash_password, verify_password
 from .auditor import run_audit
 from .database import get_db, initialize_database
-from .schemas import HardwareCreate, HardwareOut, LoginRequest, UserCreate
+from .schemas import HardwareCreate, HardwareOut, LoginRequest, RepairUpdate, UserCreate
 from .seed import DAMAGE_TERMS, ensure_seeded
 
 
@@ -139,16 +139,15 @@ def create_hardware(
         if parsed > date.today():
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Purchase date cannot be in the future")
     is_damaged = any(term in (payload.notes or "").casefold() for term in DAMAGE_TERMS)
-    next_id = db.execute("SELECT COALESCE(MAX(id), 0) + 1 AS id FROM hardware").fetchone()["id"]
-    db.execute(
+    cursor = db.execute(
         """
-        INSERT INTO hardware (id, name, brand, purchase_date, status, notes, is_damaged)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO hardware (name, brand, purchase_date, status, notes, is_damaged)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (next_id, payload.name.strip(), payload.brand.strip(), purchase_date, payload.status, payload.notes, int(is_damaged)),
+        (payload.name.strip(), payload.brand.strip(), purchase_date, payload.status, payload.notes, int(is_damaged)),
     )
     db.commit()
-    row = db.execute("SELECT * FROM hardware WHERE id = ?", (next_id,)).fetchone()
+    row = db.execute("SELECT * FROM hardware WHERE id = ?", (cursor.lastrowid,)).fetchone()
     return serialize_hardware(row)
 
 
@@ -178,17 +177,38 @@ def toggle_repair(
     hardware_id: int,
     _: Annotated[sqlite3.Row, Depends(admin_user)],
     db: Annotated[sqlite3.Connection, Depends(get_db)],
+    payload: RepairUpdate | None = None,
 ) -> dict:
     item = db.execute("SELECT * FROM hardware WHERE id = ?", (hardware_id,)).fetchone()
     if not item:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hardware not found")
     if item["status"] == "In Use":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Return the hardware before sending it to repair")
+    action = payload or RepairUpdate()
     if item["status"] == "Repair":
-        next_status, damaged = "Available", 0
+        if item["is_damaged"] and not action.resolve_damage:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Damage hold requires an explicit repair resolution note",
+            )
+        if action.resolve_damage:
+            resolution = f"Repair resolved: {action.resolution_note.strip()}"
+            db.execute(
+                """UPDATE hardware
+                   SET status = 'Available', is_damaged = 0,
+                       history = CASE WHEN history IS NULL OR history = '' THEN ? ELSE history || char(10) || ? END
+                   WHERE id = ?""",
+                (resolution, resolution, hardware_id),
+            )
+        else:
+            db.execute("UPDATE hardware SET status = 'Available' WHERE id = ?", (hardware_id,))
     else:
-        next_status, damaged = "Repair", item["is_damaged"]
-    db.execute("UPDATE hardware SET status = ?, is_damaged = ? WHERE id = ?", (next_status, damaged, hardware_id))
+        if action.resolve_damage:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Damage can only be resolved while hardware is in Repair",
+            )
+        db.execute("UPDATE hardware SET status = 'Repair' WHERE id = ?", (hardware_id,))
     db.commit()
     return serialize_hardware(db.execute("SELECT * FROM hardware WHERE id = ?", (hardware_id,)).fetchone())
 

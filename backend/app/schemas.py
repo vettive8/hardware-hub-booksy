@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 HardwareStatus = Literal["Available", "In Use", "Repair"]
 
@@ -27,6 +27,17 @@ class HardwareCreate(BaseModel):
     notes: str | None = None
 
 
+class RepairUpdate(BaseModel):
+    resolve_damage: bool = False
+    resolution_note: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def require_resolution_note(self):
+        if self.resolve_damage and (not self.resolution_note or len(self.resolution_note.strip()) < 5):
+            raise ValueError("A repair resolution note of at least 5 characters is required")
+        return self
+
+
 class HardwareOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -39,4 +50,3 @@ class HardwareOut(BaseModel):
     history: str | None
     assigned_to: str | None
     is_damaged: bool
-
