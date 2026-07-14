@@ -1,8 +1,34 @@
+import pytest
+
+
 def test_cannot_rent_broken_hardware(client, member_headers):
     response = client.post("/api/hardware/5/rent", headers=member_headers)
 
     assert response.status_code == 409
     assert response.json()["detail"] == "Damaged hardware cannot be rented"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("post", "/api/users", {"name": "Mallory", "email": "m@booksy.com", "password": "Password1!", "role": "admin"}),
+        ("post", "/api/hardware", {"name": "Rogue laptop", "brand": "Acme", "status": "Available"}),
+        ("delete", "/api/hardware/1", None),
+        ("patch", "/api/hardware/1/repair", {}),
+        ("get", "/api/users", None),
+    ],
+)
+def test_members_are_refused_every_admin_route(client, member_headers, method, path, body):
+    call = getattr(client, method)
+    response = call(path, headers=member_headers, **({"json": body} if body is not None else {}))
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin access required"
+
+
+def test_admin_routes_reject_anonymous_callers(client):
+    assert client.get("/api/users").status_code == 401
+    assert client.post("/api/hardware/1/rent").status_code == 401
 
 
 def test_cannot_rent_hardware_already_in_use(client, member_headers):
