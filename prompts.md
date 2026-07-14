@@ -120,3 +120,42 @@ The lesson recorded honestly: **every one of these bugs passed a full suite of g
 because the tests were mocked.** Mocking an LLM call tests your assumptions about the model,
 not the model. The failure was only visible by running it for real and reading the numbers
 instead of the pass/fail.
+
+## 2026-07-14 — Figma alignment and final polish
+
+> The Figma Add New Device modal has Serial Number and Category (Laptop, Mobile, Tablet,
+> Monitor, Accessory); our form doesn't. Add both end to end — schema, API, form, tests —
+> and push. Serial numbers unique when present; both fields optional because the seed
+> carries neither, and inventing serials for seeded rows would violate the loader's own
+> never-fabricate-data policy.
+
+Testing the database migration caught a real ordering bug before it shipped: the unique
+index on serial_number was created inside the initial script, which runs before the
+ALTER TABLE migration, so any pre-existing database crashed on startup. The index now
+depends explicitly on the migration having run.
+
+> i want the show/hide pw toggle in the create account section
+
+## 2026-07-14 — Final documentation pass (owner-directed)
+
+> do the final html code review. and go through the tech assessment to answer everything.
+> clean the repo. let's provide a good readme and documentation. i want you to pull how
+> many prompts, the most important prompts, from me and you, full transparency.
+
+Repository cleaned for submission: the two internal workflow reports
+(technology-report.html, code-review-report.html) and the unused railway.toml were
+removed; build-report.html and the independent code review (fable-review.html) remain in
+the repository deliberately, defects and all — transparency is the point. The README
+gained an assessment-compliance matrix, a prompt-trail transparency section naming who
+wrote what, and the owner's verbatim roadmap items.
+
+## 2026-07-14 — The tooling pipeline, in the owner's words
+
+> tooling - claude web chat (initial todo timed), into codex 5.6 sol -> claude opus
+> review work, prepare prompts for codex, then finished build and final review with
+> fable 5, vs code
+
+Recorded verbatim as the definitive description of how this project was built: a relay
+of four AI stages inside VS Code — plan (Claude web), implement (Codex 5.6 Sol), review
+and re-prompt (Claude Opus 4.8), finish and final review (Claude Fable 5) — with the
+owner directing every handoff and making the product decisions in between.

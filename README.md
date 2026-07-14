@@ -6,18 +6,17 @@ An AI-native internal hardware rental system built for the Booksy Early Careers 
 
 **Stack:** Python 3.12 · FastAPI · SQLite · Vue 3 · Vite · OpenRouter through the OpenAI-compatible SDK (optional)
 
-## Technology reports
+## Engineering dossiers
 
-- [Interactive build dossier](build-report.html) — assignment coverage, architecture, seed strategy, guarded workflows, Gemini fact-check, API explorer, test evidence, Git history, and submission readiness.
-- [OpenRouter engineering report](technology-report.html) — current integration, searchable live model catalog, capability roadmap, security boundaries, and official sources. Open it directly in a browser; the catalog request is public and never reads `.env`.
-- [Pre-deployment code review council](code-review-report.html) — code findings, demo-account decision, platform matrix, and a local Codex–Claude approval workspace. It does not read `.env` or change the application.
+- [Interactive build dossier](build-report.html) — assignment coverage, architecture, seed strategy, guarded workflows, API explorer, test evidence, Git history, and submission readiness.
+- [Independent code review](fable-review.html) — the full pre-submission review by a second AI model, kept in the repository deliberately: it documents the defects found (including the one where the AI feature contributed nothing), how they were verified, and how they were fixed. Transparency is the point.
 
 ## Product tour
 
 - Account-only login with admin-created users, PBKDF2 password hashes, expiring bearer tokens, and role guards.
 - Sortable, filterable hardware inventory with clear availability and safety-hold states.
 - Atomic rent/return transitions that block damaged, repaired, or already-rented equipment.
-- Admin command center for accounts, hardware, deletion, and repair lifecycle controls.
+- Admin command center for accounts, hardware, deletion, and repair lifecycle controls, with the Figma form's serial number (unique when present) and category fields and a show/hide toggle on the new-account password.
 - AI Inventory Auditor that analyzes accepted inventory and preserved rejected-row evidence.
 - Responsive Vue interface based on the supplied Figma wireframe's quiet sidebar, cards, table, and split login layout.
 
@@ -114,7 +113,7 @@ Vue workspace ── bearer token ──> FastAPI routes
                     permanent rules + optional OpenRouter review
 ```
 
-The API and Vue build ship as one Docker service. SQLite lives at `DATABASE_PATH`; Railway should attach a persistent volume at `/data`.
+The API and Vue build ship as one Docker service. SQLite lives at `DATABASE_PATH` and re-seeds itself from the source file on a fresh start, which is why the free-tier deployment needs no persistent disk: every cold start reproduces the same reviewable state.
 
 ## Data strategy: every seed trap
 
@@ -160,20 +159,17 @@ The first load therefore inserts **8 records**, rejects **3**, and persists **9 
 
 ## Testing and checks
 
-The required critical tests are in `tests/`:
+21 deterministic tests in `tests/`, grouped by what they protect:
 
-1. Damaged hardware cannot be rented.
-2. Hardware already In Use cannot be rented.
-3. A duplicate seed ID is rejected without overwriting the original.
-4. A valid rent/return flow records owner and state correctly.
-5. Without an API key, all nine deterministic audit findings remain present.
-6. Unknown model-generated hardware IDs are dropped and counted.
-7. Rule/model duplicates resolve in favor of the deterministic finding.
-8. Invalid model severity/schema output discards the entire model layer safely.
-9. Damaged repair completion requires an explicit resolution note, and SQLite allocates new hardware IDs.
-10. The provider wire schema excludes unsupported constraints and closes every object.
-11. A live OpenRouter contract test validates the real response and source IDs only when explicitly requested and credentials are present.
-12. A headed Playwright suite covers admin, member, responsive, auditor, and interactive-report workflows in Microsoft Edge.
+**Rental safety** — damaged hardware cannot be rented; hardware already In Use cannot be rented; a valid rent/return flow records owner and state; completing a damaged repair requires an explicit resolution note.
+
+**Data boundary** — a duplicate seed ID is rejected without overwriting the original; SQLite (not application code) allocates new hardware IDs; serial numbers round-trip and stay unique (409 on duplicate, 422 on invalid category).
+
+**Authorization** — members receive 403 from every admin route (parametrized across all five); anonymous callers receive 401.
+
+**AI trust boundary** — without a key, all nine deterministic findings remain; the model is never shown the rule engine's conclusions but does receive the raw rejected rows; agreement is classified as corroboration and novel findings survive; one malformed finding is quarantined alone (drop the row, keep the batch — the seed loader's policy applied to model output); hallucinated hardware IDs are dropped and counted; an unusable envelope falls back to rules; `evidence` is a single type across sources; the provider wire schema contains no strict-mode-incompatible keywords.
+
+Plus: a **credential-gated live OpenRouter contract test** (runs only with a key, via `python -m pytest -m integration -s`) that validates the real response and prints a sanitized transcript, and a **5-scenario Playwright suite** in Microsoft Edge covering admin, member, mobile, auditor, and deletion workflows.
 
 Run everything used before handoff:
 
@@ -187,14 +183,42 @@ For visible browser QA, start the application with an isolated database and run 
 
 ## Deployment
 
-The repository includes a multi-stage [Dockerfile](Dockerfile) and [Railway configuration](railway.toml).
+Deployed on **Render** (free tier, Docker runtime) from this repository's multi-stage [Dockerfile](Dockerfile). Environment: `APP_ENV=production` (which makes a real `SECRET_KEY` mandatory — the app refuses to boot on the development fallback), `DEMO_MODE=true` (seeds the reviewer accounts), and `OPENROUTER_API_KEY` for the live audit pass. No persistent volume: the database intentionally re-seeds on every cold start.
+
+To run the same container locally:
 
 ```bash
 docker build -t hardware-hub .
 docker run --rm -p 8000:8000 -e SECRET_KEY=change-me hardware-hub
 ```
 
-Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach a volume at `/data`, and set `SECRET_KEY`; `OPENROUTER_API_KEY` is optional.
+Open `http://localhost:8000`. Vercel/Netlify were ruled out because serverless filesystems are ephemeral per invocation, which is incompatible with a file-backed SQLite database serving one long-lived process.
+
+## Assessment compliance
+
+Every requirement from the brief, mapped to where it lives:
+
+| Requirement | Status | Where |
+|---|---|---|
+| Admin: add / delete / toggle repair | ✅ | `POST/DELETE /api/hardware`, `PATCH /api/hardware/{id}/repair` with state guards |
+| Admin: create accounts (only entry path) | ✅ | `POST /api/users`, admin-only; no self-registration exists |
+| Login system, admin-created users only | ✅ | PBKDF2 hashes, expiring JWT, role guard, member-vs-admin 403s proven in tests |
+| Dashboard: name, brand, purchase date, status | ✅ | Inventory table, plus serial/category/assignee/safety-hold |
+| Sorting and filtering | ✅ | Status filter, text search, column sort in the UI; safe allow-listed sort on the API |
+| Rent / return flow | ✅ | Atomic compare-and-swap transitions; owner-or-admin return rule |
+| Guards against impossible states | ✅ | Damaged, In Use, and Repair are unrentable; In Use is undeletable; damaged repairs need a resolution note |
+| AI-native layer (one of three) | ✅ | Inventory Auditor: deterministic rule floor + independent LLM pass with corroboration classification |
+| Supplied seed as starting point | ✅ | [data/inventory.seed.json](data/inventory.seed.json) verbatim, all traps preserved |
+| Dirty-data handling | ✅ | Per-record quarantine with raw-evidence ledger; 8 inserted, 3 rejected, 9 findings |
+| Python backend / Vue frontend | ✅ | FastAPI + Vue 3, the preferred stack |
+| File-based database | ✅ | SQLite |
+| Wireframe as inspiration, justified changes | ✅ | Layout kept, editorial remodel; justification in Design section |
+| ≥ 3 critical AI-guided tests | ✅ | 21 deterministic tests + 1 credential-gated live contract test + 5 browser scenarios |
+| README: status, shortcuts, partial, 24h roadmap | ✅ | This file, sections below |
+| AI log: tooling, data strategy, prompt trail, correction | ✅ | Below, plus [prompts.md](prompts.md) |
+| Public repo, clean incremental history | ✅ | 25+ small commits, each a reviewable decision |
+| Live demo | ✅ | <https://hardware-hub-booksy.onrender.com> |
+| ~4–5 hours | ⚠️ | Honestly: the core took roughly that; the auditor hardening, live verification, and deployment took more, and the history shows exactly where |
 
 ## Implementation status and trade-offs
 
@@ -222,7 +246,8 @@ Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach 
 - The rental table tracks new activity, but the seed contains no full historical events for its pre-existing In Use item; only the supplied assignee can be preserved.
 - No password reset, MFA, user disable/delete, pagination, or file attachments.
 - Audit findings can be rerun but are not yet assigned, resolved, or retained as versioned audit runs.
-- The Figma prototype included serial/category ideas not present in the required seed; the MVP keeps the assessment's canonical hardware fields to avoid invented migration data.
+- Serial number and category (from the Figma form) exist for newly created hardware but are deliberately absent on the seeded rows: the source file carries neither, and inventing serials would violate the same never-fabricate-data policy the loader enforces.
+- The "Inventory live" indicator is cosmetic; refresh is manual. Real-time push (polling or WebSockets) is out of scope for this MVP, though every mutation already returns the updated row.
 
 ### 🔮 Next steps: the next 24 hours
 
@@ -230,16 +255,38 @@ Open `http://localhost:8000`. For Railway, deploy the GitHub repository, attach 
 2. **Close the safety loop:** persist auditor runs, add accept/resolve actions, require service notes before repair completion, and evaluate LLM findings against a labeled fixture set.
 3. **Operational polish:** add Playwright accessibility/mobile flows, pagination, optimistic concurrency versions, richer rental history, and deployed observability/backups.
 
+Two further directions, in the owner's own words:
+
+- *additional ai features depending on the user & admin needs*
+- *improved visibiity and access of ai inventory audit, potentially changing font/component size for ease of use*
+
 ## AI development log
 
-### Tooling
+### Tooling: the exact pipeline
 
-- **Codex (GPT-5)** drove repository inspection, architecture, implementation, debugging, testing, and the incremental commit trail. The assignment suggested Claude Code; Codex was the available equivalent, and that substitution is stated rather than disguised.
-- **Figma published prototype** was inspected for layout vocabulary: gray navigation, cards, compact tables, centered login, and restrained status treatments. The UI remodel adds stronger Booksy-like editorial contrast and makes the auditor a first-class destination.
-- **OpenRouter official routing and structured-output documentation** informed the primary/fallback model chain, JSON mode, and the explicit validation boundary.
-- **pytest, FastAPI TestClient, Vite, npm audit, and Git** supplied deterministic verification and visible delivery history.
+The build ran as a relay between tools, each chosen for what it is best at, all inside **VS Code**:
 
-The complete, contemporaneous prompt history is in [prompts.md](prompts.md).
+1. **Claude (web chat)** — the initial hour-by-hour timeboxed plan: stack choice, commit discipline, the data-boundary rules, and what to cut if time ran out.
+2. **Codex (GPT-5.6 Sol)** — the implementer: repository inspection, architecture, code, debugging, tests, and the incremental commit trail.
+3. **Claude Opus 4.8 (Claude Code)** — the independent reviewer: read every line Codex produced, verified claims by running the code rather than trusting summaries, and prepared the corrective prompts fed back to Codex.
+4. **Claude Fable 5 (Claude Code)** — finished the build (auditor redesign, security gates, Figma form alignment), ran the live verifications against OpenRouter and the Render deployment, and wrote the final review.
+
+Using **different models for implementation and review** is deliberate: a model reviewing its own output tends to agree with itself. The reviewer caught what the implementer's green tests could not — including the finding that the AI feature contributed zero findings in production — and the implementer, in turn, rejected parts of the reviewer's proposed fixes with evidence (documented below). Both directions of pushback are in the prompt trail.
+
+Supporting tools: the **Figma published prototype** for layout vocabulary, **OpenRouter's routing and structured-output documentation** (verified against the live models API, not memory), and **pytest, FastAPI TestClient, Playwright, Vite, npm audit, and Git** for verification.
+
+### Prompt trail: full transparency
+
+The complete, contemporaneous history is in [prompts.md](prompts.md) — **16 logged milestones capturing ~35 architecture-shaping prompts**, recorded when they were issued, never reconstructed. The ones that mattered most:
+
+1. **The timeboxed build plan** (owner) — the hour-by-hour plan that fixed the stack, the commit discipline, and "the loader is where points live: it must reject or flag the bad records, not swallow them."
+2. **The data-boundary prompt** (owner + reviewer) — "Never use an ID-keyed dictionary that could silently overwrite duplicate id 4." Written *before* the loader existed; the trap never fired because it was anticipated.
+3. **The rule-first inversion** (reviewer) — LLM findings originally *replaced* deterministic findings; the prompt made rules the permanent safety floor and the model additive only.
+4. **The wire/trust schema split** (reviewer) — the generated JSON schema would have been rejected by the live provider; every mocked test was green. The prompt separated a boring provider-compatible wire schema from the rich local validation schema.
+5. **The independent-pass redesign** (reviewer, corrected by implementer) — after the live run revealed the model contributed nothing, the reviewer proposed removing `import_issues` from the payload entirely; the implementer correctly objected that rejected rows would become invisible, and the final design sends raw evidence without the loader's conclusions.
+6. **The production/demo separation** (implementer, correcting the reviewer) — `APP_ENV` and `DEMO_MODE` as independent controls, because "a public demo is still production" and must never run on the development signing secret.
+
+Prompts 5 and 6 are the ones to read if you read only two: each is one AI system catching the other's mistake, with the correction reasoned from evidence.
 
 ### The correction
 

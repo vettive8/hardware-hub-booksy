@@ -14,7 +14,10 @@ test.describe.serial('Hardware Hub visible feature audit', () => {
   test.beforeEach(async ({ page }) => {
     page.browserErrors = []
     page.on('console', message => {
-      if (message.type() === 'error') page.browserErrors.push(`console: ${message.text()}`)
+      if (message.type() === 'error') {
+        const where = message.location()?.url || ''
+        page.browserErrors.push(`console: ${message.text()}${where ? ` (${where})` : ''}`)
+      }
     })
     page.on('pageerror', error => page.browserErrors.push(`page: ${error.message}`))
   })
@@ -110,7 +113,7 @@ test.describe.serial('Hardware Hub visible feature audit', () => {
     const reportBase = process.env.REPORT_BASE_URL || 'http://127.0.0.1:8765'
     await page.goto(reportBase + '/build-report.html')
     await expect(page.getByRole('heading', { name: /How the build/ })).toBeVisible()
-    await page.getByRole('button', { name: 'Gaps' }).click()
+    await page.getByRole('button', { name: 'Optional plus' }).click()
     await expect(page.getByText('Live demo URL')).toBeVisible()
     await expect(page.getByText('Admin command center')).toBeHidden()
     await page.getByPlaceholder(/Search method/).fill('/api/audit')
@@ -120,25 +123,12 @@ test.describe.serial('Hardware Hub visible feature audit', () => {
     await page.locator('#readiness-list input').first().check()
     await expect(page.getByText('1 of 6 follow-ups marked complete')).toBeVisible()
 
-    await page.goto(reportBase + '/code-review-report.html')
-    await expect(page.getByRole('heading', { name: /Review the evidence/ })).toBeVisible()
-    await page.getByRole('button', { name: 'P0' }).click()
-    await expect(page.getByText('Quarantine LLM findings per record')).toBeVisible()
-    await expect(page.getByText('Define the SQLite operating envelope')).toBeHidden()
-    await page.getByLabel('Decision for Per-finding LLM quarantine + counter + UI + mixed-response test').selectOption('approve')
-    await expect(page.getByText('1 of 11 decisions recorded')).toBeVisible()
-    await page.getByLabel('Claude Fable review').fill('Independent review draft')
-    await expect(page.getByText('Saved locally')).toBeVisible()
-    await page.reload()
-    await expect(page.getByLabel('Claude Fable review')).toHaveValue('Independent review draft')
-    await page.getByRole('button', { name: 'Copy prompt' }).click()
-    await expect(page.locator('#prompt-status')).toHaveText('Copied')
-
-    await page.goto(reportBase + '/technology-report.html')
-    await expect(page.getByRole('heading', { name: /One API/ })).toBeVisible()
-    await expect(page.locator('#catalog-message')).toContainText('Live catalog loaded')
-    await page.getByPlaceholder(/Search name or model ID/).fill('claude-haiku-4.5')
-    await expect(page.locator('#models tr')).toHaveCount(1)
+    await page.goto(reportBase + '/fable-review.html')
+    await expect(page.getByRole('heading', { name: 'Code review before submission' })).toBeVisible()
+    await expect(page.getByText('Resolved: the AI layer now earns its place')).toBeVisible()
+    await page.locator('#f-be button', { hasText: 'P0' }).click()
+    await expect(page.getByText('LLM layer adds zero findings')).toBeVisible()
+    await expect(page.getByText('Well-built query API is dead code')).toBeHidden()
   })
 
   test('admin can delete a disposable hardware record', async ({ page }) => {

@@ -1,4 +1,6 @@
+h<meta charset="utf-8">
 <title>Hardware Hub — Fable Code Review</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='13' font-size='13'%3E%F0%9F%94%8D%3C/text%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #ffffff; --panel: #f6f7f9; --panel-2: #eef0f3; --line: #dfe3e8;
@@ -160,6 +162,14 @@ border-color:color-mix(in srgb, currentColor 18%, transparent);}
   <p>Fixed by removing <code>import_issues</code> from the model's evidence payload — it was being shown the rule engine's own conclusions and restating them — while still sending the <em>raw rejected rows</em>, so the duplicate ID, the unknown status and the unparseable date remain visible to it. Agreement is now recorded as corroboration rather than discarded as duplication.</p>
   <p>Live result on <code>anthropic/claude-haiku-4.5</code>: <strong>7 corroborated, 2 rules-only, 1 model-only.</strong> The model-only finding is hardware id 3, the Razer Basilisk, sitting in <code>Repair</code> with no damage notes and no recorded reason — the inverse of the rule the deterministic engine checks, and a real gap in it.</p>
   <p class="muted">Everything below is the review as originally written. The P0s are now implemented; the reasoning is kept because the walkthrough will ask about it.</p>
+</div>
+
+<div class="verdict good">
+  <h3>Final state — end of build day, 14 Jul 2026</h3>
+  <p>Every item in the order-of-work table below is <strong>done</strong>: the auditor redesign (verified live on the deployed service: 8 corroborated, 1 rules-only, 1 model-only), per-record quarantine, evidence normalised to one type, the <code>APP_ENV</code>/<code>DEMO_MODE</code> split, member-vs-admin 403 tests, deployment to Render with the URL in the README, and the working tree committed in reviewable slices.</p>
+  <p>Added after this review and verified the same way: the Figma form's <strong>serial number</strong> (unique via partial index, 409 on duplicate) and <strong>category</strong> (enum enforced by Pydantic and a database CHECK), an in-place migration for pre-existing databases — whose first version had an index-before-column ordering bug that the migration test caught before it shipped — and a show/hide toggle on the create-account password.</p>
+  <p>Two process findings from the final hours, kept for honesty: the browser suite is <em>serial</em> — test 2 logs in as a member test 1 creates, so running one test in isolation fails by design, not by defect; and mocked LLM tests inherited <code>OPENROUTER_DISABLED</code> from the ambient environment until they were pinned, silently testing the wrong path. Both are the same lesson as the headline finding: green tests measure what you asked, not what you meant.</p>
+  <p><strong>Final tallies: 21 deterministic tests, 1 live provider contract test, 5 browser scenarios, 0 npm vulnerabilities, CI green, live demo verified end to end.</strong></p>
 </div>
 
 <h2>Why the AI layer is empty</h2>
