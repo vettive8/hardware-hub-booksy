@@ -10,7 +10,8 @@ const view = ref('inventory')
 const busy = ref(false)
 const notice = reactive({ text: '', kind: 'success' })
 const filters = reactive({ search: '', status: 'All', sort: 'name' })
-const loginForm = reactive({ email: 'admin@booksy.com', password: 'Admin123!' })
+const demoMode = ref(false)
+const loginForm = reactive({ email: '', password: '' })
 const deviceForm = reactive({ name: '', brand: '', purchase_date: '', status: 'Available', notes: '' })
 const userForm = reactive({ name: '', email: '', password: '', role: 'user' })
 
@@ -48,6 +49,14 @@ async function loadHardware() {
 }
 
 async function restoreSession() {
+  // The bundle is compiled before deployment, so demo credentials are prefilled only
+  // when the server says this instance is a demo.
+  try {
+    const config = await api('/config')
+    demoMode.value = config.demo_mode
+    if (demoMode.value) Object.assign(loginForm, { email: 'admin@booksy.com', password: 'Admin123!' })
+  } catch { /* a missing config endpoint simply means no demo hints */ }
+
   if (!session.token) return
   try {
     user.value = await api('/auth/me')
@@ -161,7 +170,19 @@ function severityIcon(level) {
   return { critical: '!', high: '!', medium: '△', low: 'i' }[level] || 'i'
 }
 
-onMounted(restoreSession)
+const CONFIDENCE_LABEL = {
+  corroborated: 'corroborated by model',
+  rules_only: 'rules only',
+  model_only: 'model only',
+}
+
+onMounted(() => {
+  window.addEventListener('session-expired', () => {
+    logout()
+    flash('Your session expired. Please sign in again.', 'error')
+  })
+  restoreSession()
+})
 </script>
 
 <template>
@@ -186,7 +207,7 @@ onMounted(restoreSession)
         <label>Work email<input v-model="loginForm.email" type="email" autocomplete="email" required></label>
         <label>Password<input v-model="loginForm.password" type="password" autocomplete="current-password" minlength="8" required></label>
         <button class="button primary full" :disabled="busy">{{ busy ? 'Signing in…' : 'Sign in' }} <span>→</span></button>
-        <p class="demo-hint">Demo admin: admin@booksy.com · Admin123!</p>
+        <p v-if="demoMode" class="demo-hint">Demo admin: admin@booksy.com · Admin123!</p>
       </form>
     </section>
   </main>
@@ -209,7 +230,7 @@ onMounted(restoreSession)
     <section class="workspace">
       <header class="topbar">
         <div><span class="eyebrow">Operations / {{ view }}</span><h1>{{ nav.find((item) => item.id === view)?.label }}</h1></div>
-        <div class="top-actions"><span class="live-dot"></span><span>Inventory live</span><button class="icon-button" @click="loadHardware">↻</button></div>
+        <div class="top-actions"><span class="live-dot"></span><span>Inventory live</span><button class="icon-button" aria-label="Refresh inventory" @click="loadHardware">↻</button></div>
       </header>
 
       <div v-if="view === 'inventory'" class="content">
@@ -227,8 +248,8 @@ onMounted(restoreSession)
           <div class="card-head"><div><h3>Hardware inventory</h3><p>{{ shownHardware.length }} items shown</p></div></div>
           <div class="filters">
             <label class="search"><span>⌕</span><input v-model="filters.search" placeholder="Search hardware or brand…"></label>
-            <select v-model="filters.status"><option>All</option><option>Available</option><option>In Use</option><option>Repair</option></select>
-            <select v-model="filters.sort"><option value="name">Sort: name</option><option value="brand">Sort: brand</option><option value="purchase_date">Sort: purchase date</option><option value="status">Sort: status</option></select>
+            <select v-model="filters.status" aria-label="Filter by status"><option>All</option><option>Available</option><option>In Use</option><option>Repair</option></select>
+            <select v-model="filters.sort" aria-label="Sort hardware"><option value="name">Sort: name</option><option value="brand">Sort: brand</option><option value="purchase_date">Sort: purchase date</option><option value="status">Sort: status</option></select>
           </div>
           <div class="table-wrap">
             <table>
@@ -261,15 +282,16 @@ onMounted(restoreSession)
           <button class="button light" :disabled="busy" @click="runAudit">{{ busy ? 'Auditing…' : '✦ Run again' }}</button>
         </section>
         <section v-if="audit" class="audit-summary">
-          <div><span>Audit mode</span><strong>{{ audit.mode === 'rules+llm' ? 'Rules + OpenRouter' : 'Deterministic safety floor' }}</strong><small>{{ audit.llm_status.message }}</small></div>
-          <div><span>Total findings</span><strong>{{ audit.summary.total }}</strong></div>
-          <div><span>Critical</span><strong class="critical-text">{{ audit.summary.critical }}</strong></div>
-          <div><span>Guarded drops</span><strong>{{ audit.hallucination_guard.dropped_unknown_ids + audit.hallucination_guard.dropped_rule_duplicates }}</strong><small>Unknown IDs + duplicates</small></div>
+          <div><span>Audit mode</span><strong>{{ audit.mode === 'rules+llm' ? 'Rules + independent model pass' : 'Deterministic safety floor' }}</strong><small>{{ audit.llm_status.message }}</small></div>
+          <div><span>Total findings</span><strong>{{ audit.summary.total }}</strong><small>{{ audit.summary.critical }} critical</small></div>
+          <div><span>Corroborated</span><strong>{{ audit.hallucination_guard.corroborated }}</strong><small>Model independently agreed</small></div>
+          <div><span>New from model</span><strong>{{ audit.hallucination_guard.model_only }}</strong><small>Not provable by rules</small></div>
+          <div><span>Guarded drops</span><strong>{{ audit.hallucination_guard.dropped_unknown_ids + audit.hallucination_guard.dropped_invalid_schema }}</strong><small>Unknown IDs + invalid schema</small></div>
         </section>
         <section v-if="audit" class="findings">
           <article v-for="(finding, index) in audit.findings" :key="index" class="finding card" :class="finding.severity">
             <span class="finding-icon">{{ severityIcon(finding.severity) }}</span>
-            <div><div class="finding-meta"><span>{{ finding.severity }}</span><small>{{ finding.source }} · ID {{ finding.hardware_id ?? 'n/a' }}</small></div><h3>{{ finding.title }}</h3><p>{{ finding.explanation }}</p><code>{{ typeof finding.evidence === 'string' ? finding.evidence : `${finding.evidence.name || 'Unknown record'} · ${finding.evidence.status || 'no status'}` }}</code></div>
+            <div><div class="finding-meta"><span>{{ finding.severity }}</span><small>{{ CONFIDENCE_LABEL[finding.confidence] || finding.source }} · ID {{ finding.hardware_id ?? 'n/a' }}</small></div><h3>{{ finding.title }}</h3><p>{{ finding.explanation }}</p><code>{{ finding.evidence }}</code></div>
           </article>
         </section>
       </div>

@@ -9,6 +9,14 @@ export async function api(path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   if (session.token) headers.Authorization = `Bearer ${session.token}`
   const response = await fetch(`/api${path}`, { ...options, headers })
+
+  // An expired token would otherwise leave the UI logged in and inert: every call
+  // fails while the session still looks alive. Drop it and fall back to the login view.
+  if (response.status === 401 && session.token) {
+    session.token = null
+    window.dispatchEvent(new CustomEvent('session-expired'))
+  }
+
   if (response.status === 204) return null
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
