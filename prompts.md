@@ -61,3 +61,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Deployment prompt
 
 > Package the Vue production build and FastAPI API as one portable Docker service. Serve built assets only when present so Vite development still works, persist SQLite at a configurable DATABASE_PATH, expose a health check, and add Railway configuration. Keep the confidential assessment PDF out of both Git and Docker contexts.
+
+## 2026-07-14 — Documentation prompt
+
+> Write the README as an engineering handoff and decision record, not a feature checklist. Include reproducible setup, demo access, architecture, API surface, exact seed outcomes and every caught trap, rental invariants, tests, deployment, fully implemented work, shortcuts with why/future, partial work, a prioritized 24-hour roadmap, tooling, Figma justification, prompt trail, and the real FastAPI 204 correction. Be explicit that Codex—not Claude Code—was used and that OpenAI mode is optional and labeled.
