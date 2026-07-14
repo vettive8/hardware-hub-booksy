@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from typing import Any
+from typing import Any, Literal
 
-import httpx
+from openai import APIError, OpenAI
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-AUDITOR_INSTRUCTIONS = """You are an inventory safety auditor. Inspect both accepted inventory rows and rejected/flagged seed-import evidence. Return JSON only with a top-level `findings` array. Each finding must have code, severity (critical, high, medium, or low), hardware_id (integer or null), title, explanation, and evidence. Detect duplicate identifiers, invalid/future dates, misspelled or blank brands, unsupported statuses, and contradictions where an item is Available despite notes/history indicating damage. Do not invent missing evidence."""
+Severity = Literal["critical", "high", "medium", "low"]
+AUDITOR_INSTRUCTIONS = """You are an additive inventory reviewer. Inspect accepted inventory and rejected/flagged seed-import evidence. Return one JSON object with a `findings` array. Each finding must use only evidence supplied here and contain code, severity (critical, high, medium, or low), hardware_id (an ID present in the supplied source or null), title, explanation, and an evidence object. Look for contradictions or safety concerns not already obvious. Never claim the inventory is clean and never invent identifiers or facts."""
 
 TITLE_BY_CODE = {
     "duplicate_id": "Duplicate identifier rejected",
@@ -23,7 +25,24 @@ TITLE_BY_CODE = {
 }
 
 
-def _severity(code: str, imported_severity: str) -> str:
+class LLMFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9_]+$")
+    severity: Severity
+    hardware_id: int | None = None
+    title: str = Field(min_length=2, max_length=160)
+    explanation: str = Field(min_length=2, max_length=1000)
+    evidence: dict[str, Any]
+
+
+class LLMAuditResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    findings: list[LLMFinding] = Field(max_length=50)
+
+
+def _severity(code: str, imported_severity: str) -> Severity:
     if code == "damage_status_conflict":
         return "critical"
     if code in {"duplicate_id", "unknown_status", "database_conflict"}:
@@ -46,6 +65,16 @@ def collect_evidence(db: sqlite3.Connection) -> dict[str, list[dict[str, Any]]]:
     return {"inventory": inventory, "import_issues": import_issues}
 
 
+def source_hardware_ids(evidence: dict[str, list[dict[str, Any]]]) -> set[int]:
+    ids = {item["id"] for item in evidence["inventory"] if isinstance(item.get("id"), int)}
+    ids.update(
+        issue["hardware_id"]
+        for issue in evidence["import_issues"]
+        if isinstance(issue.get("hardware_id"), int)
+    )
+    return ids
+
+
 def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
     findings = []
     for issue in evidence["import_issues"]:
@@ -65,66 +94,121 @@ def deterministic_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[di
                     "purchase_date": raw.get("purchaseDate"),
                     "notes": raw.get("notes") or raw.get("history"),
                 },
-                "source": "deterministic",
+                "source": "rules",
             }
         )
     return findings
 
 
-def _extract_response_text(payload: dict[str, Any]) -> str:
-    chunks: list[str] = []
-    for output in payload.get("output", []):
-        for content in output.get("content", []):
-            if content.get("type") == "output_text" and content.get("text"):
-                chunks.append(content["text"])
-    return "".join(chunks)
-
-
-def llm_findings(evidence: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    api_key = os.getenv("OPENAI_API_KEY")
+def request_llm_audit(evidence: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
-    response = httpx.post(
-        "https://api.openai.com/v1/responses",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": os.getenv("OPENAI_MODEL", "gpt-5.4-mini"),
-            "instructions": AUDITOR_INSTRUCTIONS,
-            "input": json.dumps(evidence, ensure_ascii=False),
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
+    primary = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
+    configured_fallbacks = os.getenv("OPENROUTER_FALLBACK_MODELS", "google/gemini-3.1-flash-lite")
+    fallbacks = [model.strip() for model in configured_fallbacks.split(",") if model.strip() and model.strip() != primary]
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key, timeout=45.0)
+    routing: dict[str, Any] = {"provider": {"require_parameters": True}}
+    if fallbacks:
+        routing["models"] = fallbacks
+    completion = client.chat.completions.create(
+        model=primary,
+        temperature=0,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "inventory_audit",
+                "strict": True,
+                "schema": LLMAuditResponse.model_json_schema(),
+            },
         },
-        timeout=45,
+        extra_body=routing,
+        messages=[
+            {"role": "system", "content": AUDITOR_INSTRUCTIONS},
+            {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)},
+        ],
     )
-    response.raise_for_status()
-    parsed = json.loads(_extract_response_text(response.json()))
-    findings = parsed.get("findings")
-    if not isinstance(findings, list):
-        raise ValueError("LLM response did not contain a findings array")
-    for finding in findings:
+    content = completion.choices[0].message.content
+    if not content:
+        raise ValueError("OpenRouter returned an empty audit")
+    return json.loads(content)
+
+
+def merge_findings(
+    rule_findings: list[dict[str, Any]],
+    llm_response: LLMAuditResponse,
+    valid_ids: set[int],
+) -> tuple[list[dict[str, Any]], int, int]:
+    merged = list(rule_findings)
+    occupied = {(item["hardware_id"], item["code"]) for item in rule_findings}
+    unknown_id_drops = 0
+    duplicate_drops = 0
+    for validated in llm_response.findings:
+        finding = validated.model_dump()
+        if finding["hardware_id"] is not None and finding["hardware_id"] not in valid_ids:
+            unknown_id_drops += 1
+            continue
+        key = (finding["hardware_id"], finding["code"])
+        if key in occupied:
+            duplicate_drops += 1
+            continue
         finding["source"] = "llm"
-    return findings
+        merged.append(finding)
+        occupied.add(key)
+    return merged, unknown_id_drops, duplicate_drops
 
 
 def run_audit(db: sqlite3.Connection) -> dict[str, Any]:
     evidence = collect_evidence(db)
-    local_findings = deterministic_findings(evidence)
-    mode = "local"
-    fallback_reason = None
-    findings = local_findings
+    rule_findings = deterministic_findings(evidence)
+    findings = rule_findings
+    primary = os.getenv("OPENROUTER_MODEL", "anthropic/claude-haiku-4.5")
+    llm_status = {
+        "state": "not_configured",
+        "message": "Deterministic rules ran; add OPENROUTER_API_KEY for an additive model review.",
+        "accepted_findings": 0,
+    }
+    guard = {"dropped_unknown_ids": 0, "dropped_rule_duplicates": 0}
+    mode = "rules"
 
-    if os.getenv("OPENAI_API_KEY"):
+    if os.getenv("OPENROUTER_API_KEY"):
         try:
-            findings = llm_findings(evidence)
-            mode = "openai"
-        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError, RuntimeError) as exc:
-            mode = "local-fallback"
-            fallback_reason = f"Live audit failed safely: {type(exc).__name__}"
+            raw_response = request_llm_audit(evidence)
+            validated = LLMAuditResponse.model_validate(raw_response)
+            findings, unknown_drops, duplicate_drops = merge_findings(
+                rule_findings, validated, source_hardware_ids(evidence)
+            )
+            guard = {"dropped_unknown_ids": unknown_drops, "dropped_rule_duplicates": duplicate_drops}
+            llm_status = {
+                "state": "succeeded",
+                "message": "Model findings passed provider and application schemas, ID checks, and rule-first deduplication.",
+                "accepted_findings": len(findings) - len(rule_findings),
+            }
+            mode = "rules+llm"
+        except ValidationError as exc:
+            llm_status = {
+                "state": "invalid_response",
+                "message": f"Model layer discarded after schema validation failed ({exc.error_count()} errors).",
+                "accepted_findings": 0,
+            }
+            mode = "rules-fallback"
+        except (APIError, json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError, RuntimeError) as exc:
+            llm_status = {
+                "state": "failed",
+                "message": f"Model layer failed safely ({type(exc).__name__}); deterministic findings remain complete.",
+                "accepted_findings": 0,
+            }
+            mode = "rules-fallback"
 
-    counts = {level: sum(1 for item in findings if item.get("severity") == level) for level in ("critical", "high", "medium", "low")}
+    counts = {
+        level: sum(1 for item in findings if item.get("severity") == level)
+        for level in ("critical", "high", "medium", "low")
+    }
     return {
         "mode": mode,
-        "model": os.getenv("OPENAI_MODEL", "gpt-5.4-mini") if mode == "openai" else None,
-        "summary": {"total": len(findings), **counts},
+        "model": primary if os.getenv("OPENROUTER_API_KEY") else None,
+        "summary": {"total": len(findings), "rule_findings": len(rule_findings), **counts},
         "findings": findings,
-        "fallback_reason": fallback_reason,
+        "llm_status": llm_status,
+        "hallucination_guard": guard,
     }
-
