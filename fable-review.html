@@ -1,0 +1,497 @@
+<title>Hardware Hub — Fable Code Review</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f7f9; --panel-2: #eef0f3; --line: #dfe3e8;
+    --text: #14171a; --muted: #5b6570; --accent: #3b5bdb;
+    --p0: #d6336c; --p1: #e8590c; --p2: #5b6570; --ok: #2b8a3e;
+    --code-bg: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1013; --panel: #14181d; --panel-2: #1a2027; --line: #262d35;
+      --text: #e6e9ec; --muted: #8b97a3; --accent: #748ffc;
+      --p0: #ff6b9d; --p1: #ffa94d; --p2: #8b97a3; --ok: #51cf66;
+      --code-bg: #10141a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1013; --panel: #14181d; --panel-2: #1a2027; --line: #262d35;
+    --text: #e6e9ec; --muted: #8b97a3; --accent: #748ffc;
+    --p0: #ff6b9d; --p1: #ffa94d; --p2: #8b97a3; --ok: #51cf66;
+    --code-bg: #10141a;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --panel: #f6f7f9; --panel-2: #eef0f3; --line: #dfe3e8;
+    --text: #14171a; --muted: #5b6570; --accent: #3b5bdb;
+    --p0: #d6336c; --p1: #e8590c; --p2: #5b6570; --ok: #2b8a3e;
+    --code-bg: #f0f2f5;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  header.top { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 36px; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 34px; line-height: 1.2; margin: 10px 0 12px; letter-spacing: -.02em; }
+  h2 { font-size: 22px; margin: 52px 0 4px; letter-spacing: -.01em; }
+  h2 + .sub { color: var(--muted); margin: 0 0 20px; font-size: 14px; }
+  h3 { font-size: 16px; margin: 0 0 6px; }
+  p { margin: 0 0 14px; }
+  .lede { color: var(--muted); font-size: 17px; }
+
+  code, pre { font-family: "SF Mono", Consolas, "Roboto Mono", monospace; font-size: 13px; }
+  code { background: var(--code-bg); padding: 2px 6px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px; overflow-x: auto; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; }
+
+  .verdict {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--p0);
+    border-radius: 8px; padding: 20px 22px; margin: 28px 0;
+  }
+  .verdict.good { border-left-color: var(--ok); }
+  .verdict h3 { margin-bottom: 8px; }
+  .verdict p:last-child { margin-bottom: 0; }
+
+  .metrics { display: flex; flex-wrap: wrap; gap: 10px; margin: 24px 0; }
+  .metric {
+    flex: 1 1 150px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .metric .n { font-size: 24px; font-weight: 600; display: block; letter-spacing: -.02em; }
+  .metric .l { font-size: 12px; color: var(--muted); }
+  .metric.bad .n { color: var(--p0); }
+  .metric.good .n { color: var(--ok); }
+
+  .filters { display: flex; gap: 8px; margin: 20px 0 16px; flex-wrap: wrap; }
+  .filters button {
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+    font-family: inherit; transition: all .12s;
+  }
+  .filters button:hover { color: var(--text); }
+  .filters button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+  .finding {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 18px 20px; margin-bottom: 12px;
+  }
+  .finding[hidden] { display: none; }
+  .fhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .06em; padding: 2px 7px;
+    border-radius: 4px; border: 1px solid currentColor;
+  }
+  .tag.p0 { color: var(--p0); } .tag.p1 { color: var(--p1); } .tag.p2 { color: var(--p2); }
+  .loc { font-size: 12px; color: var(--muted); font-family: "SF Mono", Consolas, monospace; margin-left: auto; }
+  .finding p { font-size: 15px; margin-bottom: 10px; }
+  .finding p:last-child { margin-bottom: 0; }
+  .fix { color: var(--muted); font-size: 14px; }
+  .fix strong { color: var(--text); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+
+  details.q {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 18px; margin-bottom: 10px;
+  }
+  details.q summary {
+    cursor: pointer; font-weight: 600; font-size: 15px; list-style: none;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  details.q summary::-webkit-details-marker { display: none; }
+  details.q summary::before {
+    content: "▸"; color: var(--accent); transition: transform .15s; display: inline-block;
+  }
+  details.q[open] summary::before { transform: rotate(90deg); }
+  details.q .a {
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 15px;
+  }
+  details.q .a strong { color: var(--text); }
+  .qlevel {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    border: 1px solid var(--line); padding: 1px 6px; border-radius: 3px; margin-left: auto;
+    flex-shrink: 0; font-weight: 500;
+  }
+
+  ul { padding-left: 20px; margin: 0 0 14px; }
+  li { margin-bottom: 6px; }
+  .muted { color: var(--muted); }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 48px 0; }
+  a { color: var(--accent); }
+</style>
+<style>
+.report-stamp{font:12px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.04em;
+text-transform:uppercase;opacity:.62;padding:10px 0;margin:0 0 4px;border-bottom:1px solid currentColor;
+border-color:color-mix(in srgb, currentColor 18%, transparent);}
+.report-stamp b{font-weight:600;opacity:.9}
+</style>
+
+
+<div class="wrap">
+
+<header class="top"><div class="report-stamp">Code review before submission &middot; <b>Created 14 Jul 2026, 10:56</b> &middot; Last updated 11:29 &middot; Author: Claude Fable &middot; Europe/Warsaw</div>
+  <span class="eyebrow">Booksy · AI-Native Hardware Hub</span>
+  <h1>Code review before submission</h1>
+  <p class="lede">Reviewed by Claude Fable against the working tree at commit <code>07eb017</code>. Code authored by Codex. Every finding below was verified by reading the source or running it — none are inferred.</p>
+</header>
+
+<div class="metrics">
+  <div class="metric good"><span class="n">20</span><span class="l">backend tests passing</span></div>
+  <div class="metric good"><span class="n">5 / 5</span><span class="l">browser scenarios passing</span></div>
+  <div class="metric good"><span class="n">7 / 2 / 1</span><span class="l">corroborated / rules-only / model-only</span></div>
+  <div class="metric good"><span class="n">0</span><span class="l">npm vulnerabilities</span></div>
+</div>
+
+<div class="verdict good">
+  <h3>Resolved: the AI layer now earns its place</h3>
+  <p>The original headline of this review was that the live audit succeeded and contributed <strong>nothing</strong> — <code>accepted_findings: 0</code>, nine model findings dropped as duplicates of the rule engine's. The report was identical with the AI on or off.</p>
+  <p>Fixed by removing <code>import_issues</code> from the model's evidence payload — it was being shown the rule engine's own conclusions and restating them — while still sending the <em>raw rejected rows</em>, so the duplicate ID, the unknown status and the unparseable date remain visible to it. Agreement is now recorded as corroboration rather than discarded as duplication.</p>
+  <p>Live result on <code>anthropic/claude-haiku-4.5</code>: <strong>7 corroborated, 2 rules-only, 1 model-only.</strong> The model-only finding is hardware id 3, the Razer Basilisk, sitting in <code>Repair</code> with no damage notes and no recorded reason — the inverse of the rule the deterministic engine checks, and a real gap in it.</p>
+  <p class="muted">Everything below is the review as originally written. The P0s are now implemented; the reasoning is kept because the walkthrough will ask about it.</p>
+</div>
+
+<h2>Why the AI layer is empty</h2>
+<p class="sub">Root cause, traced through the code</p>
+
+<p><code>collect_evidence()</code> returns <code>{"inventory": [...], "import_issues": [...]}</code> and the whole dict is sent to the model. <code>import_issues</code> <em>is</em> the rule engine's output — the answer key. The model reads the nine issues, restates them, and <code>merge_findings()</code> then drops every one of them for colliding with a rule on <code>(hardware_id, code)</code>.</p>
+
+<pre><code>evidence  = rules found 9 things  ──┐
+                                    ├──> model repeats the same 9
+prompt    = "here are those 9"    ──┘
+                                          │
+merge_findings() dedupes on (id, code) ───┘──> 9 dropped, 0 kept</code></pre>
+
+<p>You showed the model the answer key, then penalised it for copying. The instruction <em>"look for concerns not already obvious"</em> is not strong enough to overcome the fact that the obvious answers are sitting in its context window.</p>
+
+<div class="verdict good">
+  <h3>The fix, and why it is better than the original design</h3>
+  <p>Stop sending <code>import_issues</code> to the model. Let it audit the raw inventory <strong>independently</strong>, then compare the two result sets:</p>
+  <ul>
+    <li><strong>Both found it</strong> → <code>corroborated</code>. Two independent methods agree. Highest confidence.</li>
+    <li><strong>Rules only</strong> → <code>rules_only</code>. Provable, but the model missed it — worth knowing.</li>
+    <li><strong>Model only</strong> → <code>model_only</code>. Genuine new signal a schema check cannot express. Needs human review.</li>
+  </ul>
+  <p>The nine "drops" become nine <strong>corroborations</strong> — a real quality signal instead of wasted tokens — and anything the model finds beyond them is the actual value you are paying for. This is also the honest answer to "what is the AI actually for?"</p>
+</div>
+
+<hr>
+
+<h2>Backend</h2>
+<p class="sub">FastAPI · SQLite · 13 routes · 11 tests</p>
+
+<div class="filters" id="f-be">
+  <button aria-pressed="true" data-p="all">All</button>
+  <button aria-pressed="false" data-p="p0">P0 — blocks submission</button>
+  <button aria-pressed="false" data-p="p1">P1 — fix if time</button>
+  <button aria-pressed="false" data-p="p2">P2 — roadmap</button>
+</div>
+
+<div id="be">
+
+<div class="finding" data-p="p0">
+  <div class="fhead"><span class="tag p0">P0</span><h3>LLM layer adds zero findings</h3><span class="loc">auditor.py · collect_evidence + merge_findings</span></div>
+  <p>Verified live. Nine model findings produced, nine dropped as rule duplicates, zero accepted. The feature is decorative.</p>
+  <p class="fix"><strong>Fix:</strong> run the model on inventory only, without <code>import_issues</code>. Classify results as corroborated / rules-only / model-only rather than deduping them into oblivion.</p>
+</div>
+
+<div class="finding" data-p="p0">
+  <div class="fhead"><span class="tag p0">P0</span><h3>One bad finding discards the whole batch</h3><span class="loc">auditor.py:224</span></div>
+  <p><code>LLMAuditResponse.model_validate(payload)</code> validates all-or-nothing. A single finding with <code>code: "BAD-CODE"</code> (fails the <code>^[a-z0-9_]+$</code> pattern) or an over-long <code>explanation</code> raises <code>ValidationError</code> and throws away every valid finding alongside it.</p>
+  <p class="fix"><strong>Fix:</strong> validate each finding independently. Drop the bad one, keep the rest, count it in <code>dropped_invalid_schema</code>. This is <em>the same policy the seed loader already applies to bad records</em> — quarantine the row, keep the batch. Flagged three times, still open.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3><code>evidence</code> is polymorphic across sources</h3><span class="loc">auditor.py · deterministic_findings vs LLMFinding</span></div>
+  <p>Rule findings emit <code>evidence</code> as an object (<code>{source_index, name, status, …}</code>). Model findings emit it as a string. Same field, same array, two types — which forces the frontend into a <code>typeof</code> check at <code>App.vue:272</code>.</p>
+  <p class="fix"><strong>Fix:</strong> normalise both to a string, or both to an object. A polymorphic field in a response contract is a bug a reviewer will spot immediately.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>Well-built query API is dead code</h3><span class="loc">main.py:74 · /api/rentals/mine</span></div>
+  <p><code>GET /api/hardware</code> supports <code>status</code>, <code>brand</code>, <code>search</code>, <code>sort</code>, and <code>direction</code>, with a column allowlist that correctly prevents SQL injection through the sort key. <strong>The frontend never calls any of it.</strong> It fetches everything and filters in JavaScript. <code>/api/rentals/mine</code> is likewise never called.</p>
+  <p class="fix"><strong>Fix:</strong> either wire the frontend to it, or delete it. Unused surface reads as code the author didn't understand well enough to use.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>No test that a normal user is refused admin routes</h3><span class="loc">tests/</span></div>
+  <p><code>admin_user</code> is a correct guard, but nothing proves it. The one authorisation rule that matters most is untested.</p>
+  <p class="fix"><strong>Fix:</strong> one test — member token hits <code>POST /api/users</code> and <code>DELETE /api/hardware/1</code>, assert 403 on both.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>Dev secret and demo passwords always active</h3><span class="loc">auth.py:38 · ensure_default_users</span></div>
+  <p><code>SECRET_KEY</code> falls back to <code>"local-development-secret-change-me"</code>. Anyone who reads your public repo can forge an admin JWT against a deployed instance. Demo accounts seed unconditionally.</p>
+  <p class="fix"><strong>Fix:</strong> refuse to start when the fallback secret is in use and <code>DEMO_MODE</code> is not set. Gate the seeded accounts behind <code>DEMO_MODE=true</code>. Do <em>not</em> add <code>guest1–guest10</code> — password <code>guest</code> would fail your own 8-character minimum, meaning you'd weaken a security control for convenience. That is the exact instinct the assignment is testing.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3>Damage conflict message misfires on Repair items</h3><span class="loc">seed.py:128</span></div>
+  <p>Any record with damage language gets <code>"Damage language conflicts with the record's operational status"</code>. For an item already in <code>Repair</code>, that is not a conflict — it's correct bookkeeping. Not triggered by the current seed, so it's latent.</p>
+  <p class="fix"><strong>Fix:</strong> only raise the conflict when <code>status != "Repair"</code>. Still set <code>is_damaged</code> either way.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3><code>BEGIN IMMEDIATE</code> serialises every write</h3><span class="loc">main.py:219, 248</span></div>
+  <p>Correct and safe at this scale. It is also a global write lock on one file — the ceiling of this architecture.</p>
+  <p class="fix"><strong>Fix:</strong> nothing now. Know the answer: Postgres with row-level locking, at which point the compare-and-swap logic ports over unchanged. That portability is <em>why</em> CAS was the right pattern.</p>
+</div>
+
+</div>
+
+<div class="verdict good">
+  <h3>What the backend gets genuinely right</h3>
+  <p><strong>Rent and return are correct under concurrency.</strong> <code>BEGIN IMMEDIATE</code>, then a conditional <code>UPDATE … WHERE id = ? AND status = 'Available' AND is_damaged = 0</code>, then a <code>rowcount</code> check. That is a compare-and-swap. Backed by a partial unique index on active rentals as a second line of defence at the database level. Two users clicking Rent simultaneously cannot both win.</p>
+  <p><strong>The seed loader quarantines instead of overwriting.</strong> Duplicate id 4 is rejected and preserved as evidence, not silently reallocated. Original status is kept while <code>is_damaged</code> blocks the rental separately — source evidence intact, unsafe action blocked.</p>
+  <p><strong>The auditor's trust boundary is right</strong> (once the two P0s land): rules are the floor, the model is additive, the wire schema is separate from the validation schema, unknown IDs are dropped and counted.</p>
+</div>
+
+<hr>
+
+<h2>Frontend</h2>
+<p class="sub">Vue 3 · one 289-line <code>App.vue</code> · native fetch · no router, no store</p>
+
+<div class="filters" id="f-fe">
+  <button aria-pressed="true" data-p="all">All</button>
+  <button aria-pressed="false" data-p="p1">P1</button>
+  <button aria-pressed="false" data-p="p2">P2</button>
+</div>
+
+<div id="fe">
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>Filtering and sorting happen entirely in the browser</h3><span class="loc">App.vue:24–30</span></div>
+  <p>Every request fetches the full inventory; <code>shownHardware</code> filters and sorts client-side. Fine for eleven rows, wrong at a thousand, and it strands the safe server-side query API you already built.</p>
+  <p class="fix"><strong>Fix:</strong> call <code>/api/hardware?status=&amp;search=&amp;sort=&amp;direction=</code>. If you keep it client-side for the deadline, <em>say so in the README as a deliberate trade-off</em> — an owned shortcut scores; an unnoticed one doesn't.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>No 401 handling — expired token creates a zombie session</h3><span class="loc">api.js</span></div>
+  <p>When the 8-hour JWT expires, every call throws <em>"Invalid or expired session"</em> into a toast, but <code>user</code> stays populated and the UI keeps pretending you're logged in. The user sees an app that looks fine and does nothing.</p>
+  <p class="fix"><strong>Fix:</strong> in <code>api()</code>, on <code>response.status === 401</code>, clear <code>session.token</code> and force the login view.</p>
+</div>
+
+<div class="finding" data-p="p1">
+  <div class="fhead"><span class="tag p1">P1</span><h3>Bearer token in <code>localStorage</code></h3><span class="loc">api.js:4–7</span></div>
+  <p>Readable by any script on the page. One XSS and the token is exfiltrated.</p>
+  <p class="fix"><strong>Fix:</strong> out of scope for today. Know the production answer: httpOnly, Secure, SameSite cookie, so JavaScript cannot read it. Put it in the README roadmap.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3>Sorting is ascending-only</h3><span class="loc">App.vue:29</span></div>
+  <p>The brief asks for sorting. There is no direction toggle, and the backend already supports <code>direction=desc</code>.</p>
+  <p class="fix"><strong>Fix:</strong> clickable column headers that toggle asc/desc. Cheap, visible, directly on the rubric.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3>No empty state when filters match nothing</h3><span class="loc">App.vue:236–244</span></div>
+  <p>Search for "zzz" and you get a table header above a void. The rentals view has a proper empty card; inventory doesn't.</p>
+  <p class="fix"><strong>Fix:</strong> mirror the <code>.empty</code> card already written for rentals.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3><code>window.prompt</code> and <code>window.confirm</code> for destructive actions</h3><span class="loc">App.vue:135, 147</span></div>
+  <p>The repair-resolution note — a genuine safety control — is collected through a native browser prompt. It works, and it looks unfinished next to the rest of the UI.</p>
+  <p class="fix"><strong>Fix:</strong> a real modal, or document it as a deliberate time-box in the README.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3>Login form ships pre-filled with admin credentials</h3><span class="loc">App.vue:13</span></div>
+  <p><code>loginForm</code> is initialised with <code>admin@booksy.com / Admin123!</code>. Great for a demo, bad as a default.</p>
+  <p class="fix"><strong>Fix:</strong> gate behind the same <code>DEMO_MODE</code> flag as the seeded accounts.</p>
+</div>
+
+<div class="finding" data-p="p2">
+  <div class="fhead"><span class="tag p2">P2</span><h3>Everything lives in one component</h3><span class="loc">App.vue</span></div>
+  <p>289 lines covering login, inventory, rentals, audit, and admin. No router, no child components, so nothing can be unit-tested in isolation — which is why all frontend coverage is end-to-end Playwright.</p>
+  <p class="fix"><strong>Fix:</strong> not today. Know the answer: split into views + a route per view, then component tests become possible.</p>
+</div>
+
+</div>
+
+<hr>
+
+<h2>Order of work</h2>
+<p class="sub">It is Tuesday. Submission is tonight. This is the whole list.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>#</th><th>Task</th><th>Why it scores</th><th>Est.</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Make the AI layer produce real findings (independent pass + corroboration)</td><td>Highest-weighted feature currently returns nothing</td><td>30m</td></tr>
+    <tr><td>2</td><td>Per-record LLM quarantine</td><td>Last real defect; best line in your walkthrough</td><td>20m</td></tr>
+    <tr><td>3</td><td>Paste sanitised live audit output into the README</td><td>Turns a claim into proof</td><td>10m</td></tr>
+    <tr><td>4</td><td>Deploy to Railway, live URL at top of README</td><td>Brief calls it a "huge plus"</td><td>45m</td></tr>
+    <tr><td>5</td><td><code>DEMO_MODE</code> gate + refuse dev <code>SECRET_KEY</code> in prod</td><td>Security judgement is explicitly graded</td><td>20m</td></tr>
+    <tr><td>6</td><td>Non-admin 403 test</td><td>One test, covers the rule that matters most</td><td>10m</td></tr>
+    <tr><td>7</td><td>Commit the 15-file working tree in coherent slices</td><td>Reviewers read the history; don't drop a blob in it</td><td>15m</td></tr>
+    <tr><td>8</td><td>Everything else → README "next 24 hours"</td><td>Writing it down scores. Building it doesn't.</td><td>15m</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Keep one HTML report, not three.</strong> <code>build-report.html</code> is a real differentiator for an AI-native role. <code>code-review-report.html</code> is your own workflow scaffolding — shipping it says you couldn't tell the difference between a deliverable and a tool. Fold <code>technology-report.html</code> in or drop it.</p>
+
+<hr>
+
+<h2>Production and scale</h2>
+<p class="sub">What you'd change if this were real. They will ask. The honest answer is that most of it is deliberately out of scope.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Today</th><th>Production</th><th>Trigger</th></tr></thead>
+  <tbody>
+    <tr><td>SQLite + <code>BEGIN IMMEDIATE</code></td><td>Postgres + row-level locking</td><td>First concurrent write spike. CAS logic ports unchanged.</td></tr>
+    <tr><td>Synchronous OpenRouter call inside the request</td><td>Background job, cached result, persisted findings</td><td>A slow model currently blocks an HTTP response.</td></tr>
+    <tr><td>Token in <code>localStorage</code></td><td>httpOnly + Secure + SameSite cookie</td><td>Any XSS at all.</td></tr>
+    <tr><td>Dev <code>SECRET_KEY</code> fallback</td><td>Hard startup refusal</td><td>Before the first public deploy.</td></tr>
+    <tr><td>Audit recomputed from scratch each run</td><td>Findings persisted with timestamps</td><td>When you want to show drift, not a snapshot.</td></tr>
+    <tr><td>Seeded demo accounts</td><td><code>DEMO_MODE</code> only</td><td>Before the first public deploy.</td></tr>
+    <tr><td>Client-side filter/sort</td><td>Server-side, paginated</td><td>Somewhere past a few hundred rows.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="muted"><strong>Platform:</strong> Railway. Vercel and Netlify are serverless — ephemeral filesystem, so a SQLite file does not survive between invocations. AWS ECS with EFS works but the IAM, VPC, and load-balancer setup is disproportionate for this. SQLite needs no container of its own: it is a file your process opens, not a server. Your existing multi-stage Dockerfile shipping API and built Vue as one service is correct.</p>
+
+<hr>
+
+<h2>Grill</h2>
+<p class="sub">Answer out loud before opening each one. If you cannot, that part of the walkthrough will hurt.</p>
+
+<details class="q">
+  <summary>Two people click Rent on the same laptop at the same millisecond. Walk me through what stops them both getting it.<span class="qlevel">certain</span></summary>
+  <div class="a"><p><strong>Three layers.</strong> <code>BEGIN IMMEDIATE</code> takes SQLite's write lock, so the second request waits rather than reading stale state. Then the <code>UPDATE</code> is conditional — <code>WHERE id = ? AND status = 'Available' AND is_damaged = 0</code> — so it only fires if the row is <em>still</em> available at write time. Then <code>rowcount</code> is checked: if it's 0, someone beat us, and we return 409 instead of pretending we succeeded. That's a compare-and-swap. Underneath, a partial unique index on <code>rentals(hardware_id) WHERE returned_at IS NULL</code> makes a second active rental physically impossible even if the application logic were wrong.</p><p>This is the race-condition question from the written assessment, answered in your own code.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why check <code>rowcount</code>? You already checked the status two lines earlier.<span class="qlevel">certain</span></summary>
+  <div class="a"><p>Because the check and the write are two separate operations, and <strong>anything can happen between them.</strong> The read tells you what was true; the conditional update tells you what is true <em>at the moment of writing</em>. Checking status first only produces a nicer error message — it is the <code>WHERE</code> clause plus <code>rowcount</code> that actually makes it safe. Remove them and you have a time-of-check-to-time-of-use bug.</p></div>
+</details>
+
+<details class="q">
+  <summary>The seed has two records with <code>id: 4</code>. Why reject the second instead of giving it a new ID?<span class="qlevel">likely</span></summary>
+  <div class="a"><p>Because reallocating <strong>invents data</strong>. You don't know whether it's a genuinely different laptop that was mis-keyed, or a duplicate export of the same one. Silently assigning id 12 fabricates an asset that may not exist. Rejecting it and preserving the raw record in <code>import_issues</code> means a human can decide, and the evidence is still there when they do.</p><p>The general principle, and it's the one the whole task is testing: <strong>when data is ambiguous, quarantine and surface — never guess.</strong> Same reason <code>22-05-2023</code> is rejected rather than parsed: is that May 22nd, or a broken US date? Guessing is how you end up with a warranty claim on the wrong day.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why is <code>is_damaged</code> a separate column instead of just setting status to <code>Repair</code>?<span class="qlevel">likely</span></summary>
+  <div class="a"><p>Because status is <strong>what the source file claimed</strong>, and <code>is_damaged</code> is <strong>what we concluded</strong>. The Dell says <code>Available</code> while its notes say <em>"Battery swelling, do not issue."</em> Overwriting the status to <code>Repair</code> would destroy the evidence of the contradiction — the auditor could never report it, because the conflict would be gone.</p><p>So: keep the claim, add the safety flag, block the rental on the flag, and let the auditor report the disagreement between the two. Preserve source, block unsafe action, surface the conflict.</p></div>
+</details>
+
+<details class="q">
+  <summary>Your AI auditor returned zero findings on the live run. Why?<span class="qlevel">certain</span></summary>
+  <div class="a"><p>Because I sent the model the rule engine's output as part of its input, then deduplicated its response against that same output. It re-derived the nine issues it had just been shown, and the dedupe dropped all nine. <strong>I gave it the answer key and then penalised it for copying.</strong></p><p>The fix is to let the model audit the inventory independently, then treat agreement as corroboration rather than duplication — findings both methods catch are high-confidence, findings only the model catches are the actual new signal, and findings only the rules catch tell me where the model is weak.</p><p>Say this one out loud in the interview. Finding it required running the thing for real instead of trusting green tests.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why do you validate the model's JSON with Pydantic when OpenRouter already enforced a schema?<span class="qlevel">likely</span></summary>
+  <div class="a"><p>Because <strong>the provider's guarantee is not my guarantee.</strong> Structured output means the shape is probably right; it says nothing about whether the content is true. The model can return a perfectly-shaped finding about hardware id 999, which does not exist. So there are two schemas doing two different jobs: a deliberately boring wire schema the provider can actually enforce, and a stricter Pydantic model that is my trust boundary. On top of that I check every <code>hardware_id</code> against the real source data and drop the ones that don't exist.</p><p>Model output is untrusted input. It gets the same treatment as a request body from a stranger.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why is the audit a <code>POST</code> and not a <code>GET</code>?<span class="qlevel">stretch</span></summary>
+  <div class="a"><p>Because it isn't safe or idempotent in the HTTP sense. It costs money, hits a third-party provider, and returns something different each time. <code>GET</code> implies safe, cacheable, and repeatable — a proxy or a browser is entitled to prefetch it. You do not want your inventory audit silently re-billed because a crawler followed a link.</p></div>
+</details>
+
+<details class="q">
+  <summary>You validate password length in Pydantic on the server. The browser already enforces <code>minlength="8"</code>. Why both?<span class="qlevel">certain</span></summary>
+  <div class="a"><p>Because the frontend runs on the attacker's machine and they control it completely. They can edit the JS, disable it, or skip the browser and hit the API with curl. Client-side validation is <strong>user experience</strong>; server-side validation is <strong>security</strong>. The server is the only thing I control, so it is the only place a rule is actually enforced.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why PBKDF2 rather than SHA-256 for passwords?<span class="qlevel">likely</span></summary>
+  <div class="a"><p>Because SHA-256 is <em>fast</em>, and fast is exactly wrong here. An attacker with a leaked hash table wants to try billions of guesses per second, and SHA-256 lets them. PBKDF2, bcrypt, scrypt, and Argon2 are deliberately slow and tunable, which makes brute force expensive. Each password also gets a unique salt, so identical passwords produce different hashes and a precomputed rainbow table is useless.</p><p>If pushed: Argon2 is the modern default; PBKDF2 was chosen here because it's in Passlib with no native build step, which mattered on a five-hour clock. That's a trade-off I can name, not one I overlooked.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why SQLite? When does it break?<span class="qlevel">likely</span></summary>
+  <div class="a"><p>Chosen because the whole app is one file, zero setup, and it deploys as a single service — correct for a five-hour build with an eleven-row seed. It breaks at concurrent writes: <code>BEGIN IMMEDIATE</code> takes a global write lock, so writers queue behind each other. Reads are fine; writes serialise.</p><p>The migration is Postgres with row-level locking, and the important part is that <strong>the rent logic doesn't change</strong> — a conditional update with a rowcount check is the same pattern there. Choosing compare-and-swap rather than an in-Python lock is what makes it portable.</p></div>
+</details>
+
+<details class="q">
+  <summary>Why not deploy on Vercel?<span class="qlevel">stretch</span></summary>
+  <div class="a"><p>Vercel is serverless: the filesystem is ephemeral and each invocation may get a fresh container. A SQLite file written during one request is simply not there for the next. Netlify Functions have the same property. Railway gives a persistent volume, which is what a file-backed database needs. It's not that Vercel is worse — it's that it's built for a stateless model my storage choice isn't compatible with.</p></div>
+</details>
+
+<details class="q">
+  <summary>Your delete endpoint returns 204. Why can't it return a body?<span class="qlevel">stretch</span></summary>
+  <div class="a"><p>204 means "No Content" — the spec forbids a body, and FastAPI enforces it. This actually broke during the build: the route was declared 204 while still returning JSON, and it failed immediately. It's in the commit history rather than rewritten away.</p></div>
+</details>
+
+<details class="q">
+  <summary>You used AI to write most of this. What did it get wrong, and how did you catch it?<span class="qlevel">certain</span></summary>
+  <div class="a"><p>Two answers, and the second one is the real one.</p><p><strong>The small one:</strong> it declared the delete route as 204 while still returning a body. FastAPI rejected it immediately — caught by running the thing.</p><p><strong>The one that matters:</strong> the auditor originally had LLM findings <em>replace</em> the deterministic ones, so switching the AI on silently discarded every finding the system could actually prove. Then, once that was fixed, the live run revealed the model was contributing zero findings because I'd fed it the rule engine's own output and then deduplicated against it. Both bugs passed every test — the tests were mocked, so they were testing my assumptions, not reality.</p><p>The lesson I'd give: <strong>green tests around an LLM call usually mean you tested the mock.</strong> The failure only appeared when I ran it against the real provider and looked at the numbers instead of the pass/fail.</p></div>
+</details>
+
+<hr>
+
+<h2>Prompt for Codex</h2>
+
+<pre><code>Two auditor fixes, then we stop and ship.
+
+1. The AI layer contributes nothing. Live run: accepted_findings 0,
+   dropped_rule_duplicates 9. Root cause: collect_evidence() sends import_issues
+   (the rule engine's own output) to the model, so it restates the same 9 findings
+   and merge_findings() drops them all as duplicates.
+
+   Fix: send the model the inventory ONLY -- no import_issues. Let it audit
+   independently. Then classify instead of deduplicating:
+     - found by both          -> confidence "corroborated"
+     - rules only             -> confidence "rules_only"
+     - model only             -> confidence "model_only"  (this is the new signal)
+   Surface all three counts in the response and in the auditor UI. Keep rules as
+   the safety floor: a model finding can never remove or downgrade a rule finding.
+
+2. Per-record LLM quarantine (third request). run_audit calls
+   LLMAuditResponse.model_validate() on the whole payload, so one malformed finding
+   discards every valid one. Validate each finding independently against LLMFinding,
+   drop only the invalid item, add a dropped_invalid_schema counter, and fall back
+   to rules-only ONLY if the top-level payload is unusable.
+   Test: 3 findings, one with code "BAD-CODE", one with hardware_id 999 -- assert the
+   valid one survives and both counters read 1.
+
+3. Normalise `evidence` to a single type across rule and model findings so the
+   frontend stops doing a typeof check.
+
+Then: DEMO_MODE gate for seeded accounts and the prefilled login form; refuse startup
+on the fallback SECRET_KEY; one test that a member gets 403 from POST /api/users and
+DELETE /api/hardware/1; commit the working tree in coherent slices (auditor, playwright,
+dossier, docs) rather than one blob; drop code-review-report.html and
+technology-report.html, keep build-report.html.
+
+Everything else -- httpOnly cookies, Postgres, background audit job, server-side
+filtering, accessibility audit, true concurrency test -- goes in the README's
+"next 24 hours" section as written roadmap, not code.</code></pre>
+
+</div>
+
+<script>
+  for (const id of ['f-be', 'f-fe']) {
+    const bar = document.getElementById(id);
+    if (!bar) continue;
+    const list = document.getElementById(id.slice(2));
+    bar.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      for (const b of bar.querySelectorAll('button')) {
+        b.setAttribute('aria-pressed', String(b === btn));
+      }
+      const want = btn.dataset.p;
+      for (const card of list.querySelectorAll('.finding')) {
+        card.hidden = want !== 'all' && card.dataset.p !== want;
+      }
+    });
+  }
+</script>

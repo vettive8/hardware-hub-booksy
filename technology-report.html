@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Hardware Hub engineering report: OpenRouter architecture, model catalog, capabilities, risks, and roadmap.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23c7ff35'/%3E%3Cpath d='M18 15h8v13h12V15h8v34h-8V36H26v13h-8z' fill='%23171713'/%3E%3C/svg%3E">
+  <title>Hardware Hub · OpenRouter Engineering Report</title>
+  <style>
+    :root {
+      --ink: #171713;
+      --paper: #f5f2eb;
+      --card: #fffef9;
+      --line: #d8d3c8;
+      --muted: #67645e;
+      --acid: #c7ff35;
+      --violet: #8168dc;
+      --blue: #2463eb;
+      --warning: #a54d24;
+      --code: #20211d;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+    a { color: inherit; }
+    button, input, select { font: inherit; }
+    code, pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+
+    .shell { display: grid; grid-template-columns: 245px minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 30px 22px;
+      background: var(--ink);
+      color: white;
+    }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 18px; }
+    .mark { width: 27px; height: 20px; border-radius: 12px 3px 12px 3px; background: var(--acid); }
+    .eyebrow { margin: 40px 0 10px; color: #a6a69e; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+    nav a { display: block; padding: 9px 11px; border-radius: 7px; color: #c4c4bd; text-decoration: none; font-size: 13px; }
+    nav a:hover { background: #2c2d28; color: white; }
+    .aside-note { position: absolute; left: 22px; right: 22px; bottom: 25px; color: #9d9d95; font-size: 11px; }
+
+    main { min-width: 0; }
+    .hero { padding: 74px clamp(24px, 6vw, 88px) 62px; color: white; background: var(--ink); }
+    .kicker { color: var(--acid); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    h1 { max-width: 860px; margin: 17px 0; font-family: Georgia, serif; font-size: clamp(48px, 7vw, 88px); font-weight: 400; line-height: .97; letter-spacing: -.045em; }
+    h1 em { color: #ae9aff; font-weight: 400; }
+    .lede { max-width: 760px; color: #c2c2ba; font-size: 18px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 30px; }
+    .pill { padding: 6px 10px; border: 1px solid #45463f; border-radius: 999px; color: #d4d4cc; font-size: 11px; }
+
+    section { padding: 58px clamp(24px, 6vw, 88px); border-bottom: 1px solid var(--line); }
+    section > header { max-width: 850px; margin-bottom: 27px; }
+    h2 { margin: 4px 0 10px; font-family: Georgia, serif; font-size: clamp(34px, 4vw, 50px); font-weight: 400; letter-spacing: -.025em; }
+    h3 { margin: 0 0 8px; font-size: 16px; }
+    .subtle { color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 15px; }
+    .card { padding: 23px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: 1 / -1; }
+    .metric strong { display: block; font-family: Georgia, serif; font-size: 39px; font-weight: 400; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .tag { display: inline-block; padding: 3px 7px; border-radius: 4px; background: #e9e5dc; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .tag.live { background: #e5fac0; }
+    .tag.next { background: #e4e8ff; color: #3e43a2; }
+    .tag.later { background: #f8dfd2; color: #86401e; }
+    .stack { display: grid; gap: 10px; }
+    .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 19px; }
+    .flow span { padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: white; font-size: 12px; }
+    .flow b { color: var(--violet); }
+    ul.clean { margin: 13px 0 0; padding-left: 19px; }
+    ul.clean li { margin: 7px 0; }
+    .model-card { position: relative; overflow: hidden; }
+    .model-card::after { content: ""; position: absolute; width: 90px; height: 90px; right: -45px; top: -45px; border-radius: 50%; background: var(--acid); opacity: .6; }
+    .model-id { color: var(--muted); font-family: monospace; font-size: 11px; }
+    .model-facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 17px; }
+    .model-facts div { padding: 10px; border-radius: 7px; background: #f2efe7; }
+    .model-facts b, .model-facts small { display: block; }
+    .model-facts small { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+
+    .roadmap { counter-reset: priority; }
+    .capability { position: relative; padding-left: 58px; }
+    .capability::before { counter-increment: priority; content: counter(priority, decimal-leading-zero); position: absolute; left: 20px; color: var(--violet); font-family: Georgia, serif; font-size: 20px; }
+    .decision { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+
+    .callout { border-left: 5px solid var(--acid); background: var(--ink); color: white; }
+    .callout p { color: #bdbdb5; }
+    pre { overflow: auto; padding: 17px; border-radius: 8px; background: var(--code); color: #eef1e8; font-size: 12px; line-height: 1.6; }
+    .comment { color: #93a184; }
+
+    .controls { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(130px, 1fr)); gap: 10px; margin-bottom: 13px; }
+    .controls input, .controls select { width: 100%; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+    .catalog-status { display: flex; justify-content: space-between; gap: 10px; margin: 10px 0; color: var(--muted); font-size: 12px; }
+    .table-wrap { overflow: auto; max-height: 650px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { position: sticky; top: 0; z-index: 1; padding: 11px; background: #eeebe3; text-align: left; white-space: nowrap; }
+    td { padding: 11px; border-top: 1px solid #e8e4da; vertical-align: top; }
+    tbody tr:hover { background: #fbfae8; }
+    td:first-child { min-width: 270px; }
+    .provider { color: var(--muted); font-size: 10px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 4px; max-width: 290px; }
+    .badge { padding: 2px 5px; border-radius: 4px; background: #e9e5dc; font-size: 9px; white-space: nowrap; }
+    .empty { padding: 40px; text-align: center; color: var(--muted); }
+    .sources a { display: block; padding: 12px 0; border-top: 1px solid var(--line); color: var(--blue); text-decoration: none; }
+    .sources a:hover { text-decoration: underline; }
+    footer { padding: 35px clamp(24px, 6vw, 88px); color: var(--muted); font-size: 11px; }
+
+    @media (max-width: 980px) {
+      .shell { display: block; }
+      aside { position: static; height: auto; }
+      aside nav, .aside-note { display: none; }
+      .span-3, .span-4, .span-6, .span-8 { grid-column: span 6; }
+      .controls { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 620px) {
+      .hero { padding-top: 48px; }
+      .span-3, .span-4, .span-6, .span-8 { grid-column: 1 / -1; }
+      .controls { grid-template-columns: 1fr; }
+      .model-facts { grid-template-columns: 1fr; }
+    }
+  </style>
+<style>
+.report-stamp{font:12px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.04em;
+text-transform:uppercase;opacity:.62;padding:10px 0;margin:0 0 4px;border-bottom:1px solid currentColor;
+border-color:color-mix(in srgb, currentColor 18%, transparent);}
+.report-stamp b{font-weight:600;opacity:.9}
+</style>
+
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="mark"></span> Hardware Hub</div>
+      <p class="eyebrow">Technology dossier 01</p>
+      <nav aria-label="Report sections">
+        <a href="#executive-summary">Executive summary</a>
+        <a href="#current-design">Current design</a>
+        <a href="#models-in-use">Models in use</a>
+        <a href="#capability-roadmap">Capability roadmap</a>
+        <a href="#model-explorer">All models</a>
+        <a href="#security">Safety &amp; operations</a>
+        <a href="#sources">Official sources</a>
+      </nav>
+      <p class="aside-note">A living engineering report. Catalog data is loaded from OpenRouter's public API; secrets never enter this page.</p>
+    </aside>
+
+    <main>
+      <header class="hero"><div class="report-stamp">OpenRouter engineering dossier &middot; <b>Created 14 Jul 2026, 09:20</b> &middot; Last updated 10:09 &middot; Author: Codex &middot; Europe/Warsaw</div>
+        <div class="kicker">OpenRouter · architecture and opportunity map</div>
+        <h1>One API, <em>many models</em>—with an application trust boundary.</h1>
+        <p class="lede">A project-specific review of the AI gateway behind Hardware Hub's Inventory Auditor: what is implemented, what every available model can do, and which additions are worth shipping.</p>
+        <div class="meta">
+          <span class="pill">Research date: 14 July 2026</span>
+          <span class="pill">Public catalog: no key required</span>
+          <span class="pill">Secrets: never loaded by this report</span>
+          <span class="pill">Source policy: official OpenRouter documentation</span>
+        </div>
+      </header>
+
+      <section id="executive-summary">
+        <header>
+          <div class="kicker">01 · Executive summary</div>
+          <h2>OpenRouter is the gateway, not the safety system.</h2>
+          <p class="subtle">Its value is a normalized API across providers, model and provider fallbacks, capability discovery, and routing controls. Hardware Hub's deterministic rules and local validation must remain authoritative.</p>
+        </header>
+        <div class="grid">
+          <article class="card metric span-3"><strong>434</strong><span>models in the 14 July catalog snapshot</span></article>
+          <article class="card metric span-3"><strong>267</strong><span>models advertising tool calling</span></article>
+          <article class="card metric span-3"><strong>280</strong><span>models advertising structured outputs</span></article>
+          <article class="card metric span-3"><strong>205</strong><span>models advertising reasoning controls</span></article>
+          <article class="card span-8">
+            <span class="tag live">Recommendation</span>
+            <h3>Keep the current small-model, rule-first architecture.</h3>
+            <p>The inventory is tiny and the task is extraction, not open-ended reasoning. A fast primary plus a cross-vendor fallback is proportionate. Upgrade the trust boundary and observability before paying for a larger model.</p>
+          </article>
+          <article class="card span-4">
+            <span class="tag next">Highest-value next step</span>
+            <h3>Quarantine invalid findings individually.</h3>
+            <p>One malformed model item currently invalidates the entire LLM batch. Match the seed loader: retain valid records, count rejected records, and report why.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="current-design">
+        <header>
+          <div class="kicker">02 · Current design</div>
+          <h2>What the application already does.</h2>
+        </header>
+        <div class="grid">
+          <article class="card span-6">
+            <span class="tag live">Implemented</span>
+            <h3>Portable structured output</h3>
+            <p>A deliberately limited JSON Schema is sent through <code>response_format</code>. Locally, Pydantic enforces stricter enums, patterns, lengths, and extra-field rejection.</p>
+          </article>
+          <article class="card span-6">
+            <span class="tag live">Implemented</span>
+            <h3>Cross-vendor model fallback</h3>
+            <p>Claude Haiku is primary; Gemini Flash Lite is passed in the model fallback list. OpenRouter can move to the fallback on errors such as rate limits, downtime, moderation, or context validation.</p>
+          </article>
+          <article class="card span-6">
+            <span class="tag live">Implemented</span>
+            <h3>Provider capability enforcement</h3>
+            <p><code>provider.require_parameters: true</code> prevents routing to an endpoint that cannot honor requested parameters such as structured output.</p>
+          </article>
+          <article class="card span-6">
+            <span class="tag live">Implemented</span>
+            <h3>Deterministic safety floor</h3>
+            <p>Rules always run. Model findings are additive, checked against source IDs, and deduplicated with deterministic findings winning.</p>
+          </article>
+          <article class="card span-12 callout">
+            <h3>Request and trust flow</h3>
+            <div class="flow" aria-label="OpenRouter request flow">
+              <span>SQLite evidence</span><b>→</b><span>deterministic findings</span><b>+</b><span>OpenRouter request</span><b>→</b><span>wire JSON Schema</span><b>→</b><span>Pydantic validation</span><b>→</b><span>ID guard + dedupe</span><b>→</b><span>API response</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="models-in-use">
+        <header>
+          <div class="kicker">03 · Models in use</div>
+          <h2>A practical two-model chain.</h2>
+          <p class="subtle">Pricing shown per million tokens from the public catalog snapshot. Always re-check live pricing before a production decision.</p>
+        </header>
+        <div class="grid">
+          <article class="card span-6 model-card">
+            <span class="tag live">Primary</span>
+            <h3>Anthropic: Claude Haiku 4.5</h3>
+            <div class="model-id">anthropic/claude-haiku-4.5</div>
+            <div class="model-facts">
+              <div><b>200K</b><small>context</small></div>
+              <div><b>$1</b><small>input / 1M</small></div>
+              <div><b>$5</b><small>output / 1M</small></div>
+            </div>
+            <p>Advertises text/image/file input, structured outputs, tools, and reasoning controls. Good fit for concise evidence review.</p>
+          </article>
+          <article class="card span-6 model-card">
+            <span class="tag next">Fallback</span>
+            <h3>Google: Gemini 3.1 Flash Lite</h3>
+            <div class="model-id">google/gemini-3.1-flash-lite</div>
+            <div class="model-facts">
+              <div><b>1M</b><small>context</small></div>
+              <div><b>$0.25</b><small>input / 1M</small></div>
+              <div><b>$1.50</b><small>output / 1M</small></div>
+            </div>
+            <p>Advertises text/image/video/file/audio input, structured outputs, tools, and reasoning controls. Cross-vendor diversity reduces correlated outages.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="capability-roadmap">
+        <header>
+          <div class="kicker">04 · Capability roadmap</div>
+          <h2>What we could add—and whether we should.</h2>
+          <p class="subtle">A capability appearing in OpenRouter does not make it automatically appropriate. Each addition needs a product use case, a local authorization boundary, tests, cost controls, and observable failure behavior.</p>
+        </header>
+        <div class="grid roadmap">
+          <article class="card span-6 capability">
+            <span class="tag next">Adopt next</span>
+            <h3>Usage and cost telemetry</h3>
+            <p>Persist model ID, latency, prompt/completion tokens, cache tokens, cost, accepted findings, and rejected findings for each audit run. OpenRouter includes usage data in responses.</p>
+            <div class="decision">Why: proves the live feature works and makes model changes measurable.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag next">Adopt next</span>
+            <h3>Per-finding quarantine</h3>
+            <p>Validate each returned finding independently. Reject bad schema or unknown IDs individually while retaining valid findings and exposing drop counters.</p>
+            <div class="decision">Why: model output is untrusted input; one bad row should not erase a useful batch.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag next">High value</span>
+            <h3>Tool calling with server-owned tools</h3>
+            <p>Let the model propose read-only calls such as <code>lookup_hardware</code> or <code>get_repair_history</code>. The FastAPI server validates arguments, authorization, limits, and executes the call—not the model.</p>
+            <div class="decision">Use for explainable follow-up questions. Do not allow direct SQL or unconfirmed state changes.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag next">High value</span>
+            <h3>Vision and file inputs</h3>
+            <p>Analyze a photographed asset tag, damage image, receipt, warranty PDF, or repair document. Compare extracted facts against the inventory record and require human confirmation.</p>
+            <div class="decision">Use for assisted intake. Strip metadata and define retention rules before sending employee documents.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag later">Selective</span>
+            <h3>Grounded web search</h3>
+            <p>Check manufacturer recall notices, current support status, or warranty documentation and return standardized URL citations. Domain allowlists should restrict sources to manufacturer sites.</p>
+            <div class="decision">Do not use for the existing seed audit: it only needs supplied evidence and should remain reproducible.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag later">Selective</span>
+            <h3>Embeddings and semantic retrieval</h3>
+            <p>Index repair notes and manuals for “find devices with battery swelling symptoms” queries. Keep relational filters in SQL; use vectors only for fuzzy text relevance.</p>
+            <div class="decision">Worth adding only after the note/document corpus is large enough that exact search becomes inadequate.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag later">Operational</span>
+            <h3>Presets, guardrails, and ZDR routing</h3>
+            <p>Move model/routing parameters into a named preset, cap key spend, allowlist models/providers, and request zero-data-retention endpoints where required.</p>
+            <div class="decision">Useful for production governance; keep application-side validation because account policy is not a data-integrity boundary.</div>
+          </article>
+          <article class="card span-6 capability">
+            <span class="tag later">Measure first</span>
+            <h3>Prompt caching, streaming, and reasoning</h3>
+            <p>Cache repeated long context, stream user-facing prose, or enable deeper reasoning only when measurements show the audit needs them. The current tiny structured response gains little.</p>
+            <div class="decision">Avoid complexity without a latency, quality, or cost benchmark demonstrating value.</div>
+          </article>
+          <article class="card span-12">
+            <span class="tag later">Low fit today</span>
+            <h3>Audio output, image generation, response healing, and automatic model routing</h3>
+            <p>These exist, but none improves the core inventory safety workflow today. Response healing is especially unsuitable as a substitute for strict validation: repairing malformed JSON may hide model/provider contract regressions. Auto routing also weakens repeatability unless evaluated against a labeled audit dataset.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="model-explorer">
+        <header>
+          <div class="kicker">05 · Live model explorer</div>
+          <h2>Search every current OpenRouter model.</h2>
+          <p class="subtle">This browser calls <code>GET https://openrouter.ai/api/v1/models?output_modalities=all</code>. It sends no API key and no project data. Model availability, pricing, and capabilities can change after this report was written.</p>
+        </header>
+        <div class="controls">
+          <label><span hidden>Search models</span><input id="search" type="search" placeholder="Search name or model ID…"></label>
+          <label><span hidden>Provider</span><select id="provider"><option value="">All providers</option></select></label>
+          <label><span hidden>Capability</span><select id="capability">
+            <option value="">All capabilities</option>
+            <option value="tools">Tool calling</option>
+            <option value="structured_outputs">Structured outputs</option>
+            <option value="reasoning">Reasoning</option>
+            <option value="image_input">Image input</option>
+            <option value="image_output">Image output</option>
+            <option value="audio_input">Audio input</option>
+            <option value="embeddings">Embeddings</option>
+          </select></label>
+          <label><span hidden>Sort models</span><select id="sort">
+            <option value="name">Sort: name</option>
+            <option value="context">Sort: context</option>
+            <option value="input">Sort: input price</option>
+            <option value="output">Sort: output price</option>
+          </select></label>
+        </div>
+        <div class="catalog-status"><span id="catalog-message" aria-live="polite">Loading public catalog…</span><span id="shown-count"></span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Model</th><th>Context</th><th>Input / 1M</th><th>Output / 1M</th><th>Capabilities</th></tr></thead>
+            <tbody id="models"><tr><td colspan="5" class="empty">Loading current model data…</td></tr></tbody>
+          </table>
+        </div>
+        <noscript><p class="empty">JavaScript is required for the live catalog. Browse it directly at <a href="https://openrouter.ai/models">openrouter.ai/models</a>.</p></noscript>
+      </section>
+
+      <section id="security">
+        <header>
+          <div class="kicker">06 · Safety and operations</div>
+          <h2>The production checklist.</h2>
+        </header>
+        <div class="grid">
+          <article class="card span-6">
+            <h3>Secrets</h3>
+            <ul class="clean">
+              <li>Store an inference key in local <code>.env</code> or the deployment secret manager.</li>
+              <li>Never put a real key in <code>.env.example</code>, HTML, frontend JavaScript, prompts, logs, screenshots, or Git.</li>
+              <li>Use a separate limited key per environment and rotate any exposed key immediately.</li>
+              <li>Do not use a management key for application inference.</li>
+            </ul>
+          </article>
+          <article class="card span-6">
+            <h3>Trust boundary</h3>
+            <ul class="clean">
+              <li>Rules remain authoritative for known safety conditions.</li>
+              <li>Validate top-level JSON and each finding independently.</li>
+              <li>Reject identifiers absent from the supplied evidence.</li>
+              <li>Authorize and execute tools on the server; the model only proposes calls.</li>
+            </ul>
+          </article>
+          <article class="card span-6">
+            <h3>Reliability</h3>
+            <ul class="clean">
+              <li>Set timeouts and bounded retries with jitter.</li>
+              <li>Keep cross-vendor fallback and return deterministic results on failure.</li>
+              <li>Pin an evaluated primary model; do not silently switch quality tiers.</li>
+              <li>Run a credential-gated contract test before claiming live integration.</li>
+            </ul>
+          </article>
+          <article class="card span-6">
+            <h3>Measurement</h3>
+            <ul class="clean">
+              <li>Build a labeled fixture set for precision/recall regression testing.</li>
+              <li>Track selected model/provider, latency, usage, cost, and guard drops.</li>
+              <li>Alert on schema failures, fallback spikes, and cost anomalies.</li>
+              <li>Review data retention and provider policy before sending documents.</li>
+            </ul>
+          </article>
+          <article class="card span-12">
+            <h3>Safe configuration shape</h3>
+            <pre><span class="comment"># .env.example — placeholders only; real values belong in ignored .env</span>
+OPENROUTER_API_KEY=
+OPENROUTER_MODEL=anthropic/claude-haiku-4.5
+OPENROUTER_FALLBACK_MODELS=google/gemini-3.1-flash-lite</pre>
+          </article>
+        </div>
+      </section>
+
+      <section id="sources" class="sources">
+        <header>
+          <div class="kicker">07 · Official sources</div>
+          <h2>Documentation used for this report.</h2>
+          <p class="subtle">These links are intentionally first-party. The live explorer uses the public Models API as its source of truth.</p>
+        </header>
+        <a href="https://openrouter.ai/docs/guides/overview/models">Models API and supported parameters ↗</a>
+        <a href="https://openrouter.ai/docs/api/reference/overview">API reference and plugins ↗</a>
+        <a href="https://openrouter.ai/docs/guides/features/structured-outputs">Structured outputs ↗</a>
+        <a href="https://openrouter.ai/docs/guides/routing/model-fallbacks">Model fallbacks ↗</a>
+        <a href="https://openrouter.ai/docs/guides/routing/provider-selection">Provider routing and data controls ↗</a>
+        <a href="https://openrouter.ai/docs/guides/features/tool-calling">Tool and function calling ↗</a>
+        <a href="https://openrouter.ai/docs/guides/features/plugins/overview">Plugins ↗</a>
+        <a href="https://openrouter.ai/docs/cookbook/administration/usage-accounting">Usage accounting ↗</a>
+        <a href="https://openrouter.ai/docs/guides/features/guardrails/overview">Guardrails ↗</a>
+        <a href="https://openrouter.ai/docs/guides/features/presets">Presets ↗</a>
+      </section>
+
+      <footer>Hardware Hub technology dossier · OpenRouter edition · Catalog facts are a dated snapshot; use the live explorer for current data.</footer>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const endpoint = "https://openrouter.ai/api/v1/models?output_modalities=all";
+      const state = { models: [] };
+      const elements = {
+        search: document.querySelector("#search"),
+        provider: document.querySelector("#provider"),
+        capability: document.querySelector("#capability"),
+        sort: document.querySelector("#sort"),
+        body: document.querySelector("#models"),
+        message: document.querySelector("#catalog-message"),
+        count: document.querySelector("#shown-count")
+      };
+
+      const modalities = (model, direction) => model.architecture?.[`${direction}_modalities`] || [];
+      const params = model => model.supported_parameters || [];
+      const providerOf = model => model.id.includes("/") ? model.id.split("/")[0] : "other";
+      const number = value => Number.isFinite(Number(value)) ? Number(value) : Number.POSITIVE_INFINITY;
+      const dollarsPerMillion = value => {
+        const amount = Number(value) * 1_000_000;
+        if (!Number.isFinite(amount)) return "—";
+        if (amount === 0) return "$0";
+        return amount < .01 ? `<$0.01` : `$${amount.toLocaleString(undefined, { maximumFractionDigits: 3 })}`;
+      };
+      const context = value => {
+        const size = Number(value);
+        if (!Number.isFinite(size)) return "—";
+        return size >= 1_000_000 ? `${(size / 1_000_000).toFixed(size % 1_000_000 ? 1 : 0)}M` : `${Math.round(size / 1_000)}K`;
+      };
+      const escape = value => String(value ?? "").replace(/[&<>'"]/g, char => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", "\"": "&quot;"
+      })[char]);
+
+      function capabilities(model) {
+        const values = [];
+        if (params(model).includes("tools")) values.push("tools");
+        if (params(model).includes("structured_outputs")) values.push("structured");
+        if (params(model).includes("reasoning")) values.push("reasoning");
+        if (modalities(model, "input").includes("image")) values.push("image in");
+        if (modalities(model, "output").includes("image")) values.push("image out");
+        if (modalities(model, "input").includes("audio")) values.push("audio in");
+        if (modalities(model, "output").includes("embeddings")) values.push("embeddings");
+        return values;
+      }
+
+      function hasCapability(model, capability) {
+        if (!capability) return true;
+        if (["tools", "structured_outputs", "reasoning"].includes(capability)) return params(model).includes(capability);
+        const [kind, direction] = capability.split("_");
+        return modalities(model, direction).includes(kind);
+      }
+
+      function render() {
+        const query = elements.search.value.trim().toLowerCase();
+        const provider = elements.provider.value;
+        const capability = elements.capability.value;
+        const sort = elements.sort.value;
+        const filtered = state.models.filter(model =>
+          (!query || `${model.name} ${model.id}`.toLowerCase().includes(query)) &&
+          (!provider || providerOf(model) === provider) &&
+          hasCapability(model, capability)
+        );
+
+        filtered.sort((a, b) => {
+          if (sort === "context") return number(b.context_length) - number(a.context_length);
+          if (sort === "input") return number(a.pricing?.prompt) - number(b.pricing?.prompt);
+          if (sort === "output") return number(a.pricing?.completion) - number(b.pricing?.completion);
+          return String(a.name || a.id).localeCompare(String(b.name || b.id));
+        });
+
+        elements.count.textContent = `${filtered.length} of ${state.models.length} models`;
+        elements.body.innerHTML = filtered.length ? filtered.map(model => `
+          <tr>
+            <td><strong>${escape(model.name || model.id)}</strong><div class="provider">${escape(model.id)}</div></td>
+            <td>${context(model.context_length)}</td>
+            <td>${dollarsPerMillion(model.pricing?.prompt)}</td>
+            <td>${dollarsPerMillion(model.pricing?.completion)}</td>
+            <td><div class="badges">${capabilities(model).map(item => `<span class="badge">${escape(item)}</span>`).join("") || "—"}</div></td>
+          </tr>`).join("") : `<tr><td colspan="5" class="empty">No models match these filters.</td></tr>`;
+      }
+
+      [elements.search, elements.provider, elements.capability, elements.sort].forEach(element => {
+        element.addEventListener("input", render);
+      });
+
+      fetch(endpoint, { headers: { Accept: "application/json" } })
+        .then(response => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.json();
+        })
+        .then(payload => {
+          state.models = Array.isArray(payload.data) ? payload.data : [];
+          const providers = [...new Set(state.models.map(providerOf))].sort();
+          elements.provider.insertAdjacentHTML("beforeend", providers.map(provider => `<option value="${escape(provider)}">${escape(provider)}</option>`).join(""));
+          elements.message.textContent = `Live catalog loaded ${new Date().toLocaleString()}`;
+          render();
+        })
+        .catch(error => {
+          elements.message.textContent = `Live catalog unavailable (${error.message}).`;
+          elements.count.innerHTML = `<a href="https://openrouter.ai/models">Open the official catalog ↗</a>`;
+          elements.body.innerHTML = `<tr><td colspan="5" class="empty">The static report remains available; the live model table requires network access and API CORS support.</td></tr>`;
+        });
+    })();
+  </script>
+</body>
+</html>

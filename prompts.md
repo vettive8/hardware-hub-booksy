@@ -81,3 +81,42 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — Wire-schema review correction
 
 > The real provider call is still unexecuted and the generated Pydantic JSON Schema is not a portable strict wire contract. Separate the schemas: hand-write a closed provider schema with every property required, nullable hardware IDs, string evidence, and no pattern/length/array constraints; retain the rich Pydantic model as the post-response trust boundary. Add a recursive schema-contract test and an `integration` test that is skipped without `OPENROUTER_API_KEY`, calls the real endpoint when configured, validates all returned IDs, and prints a sanitized live result. Do not claim or paste a live success until that credentialed test actually runs.
+
+## 2026-07-14 — Live run reveals the AI layer contributes nothing
+
+The key was finally added and the credential-gated integration test executed against
+`anthropic/claude-haiku-4.5`. It passed, and the result was the important finding of
+the whole build: `accepted_findings: 0`, `dropped_rule_duplicates: 9`. The provider
+accepted the schema, the response validated, every test was green — and the audit report
+was identical with the model switched on or off.
+
+Cause: `collect_evidence()` sent `import_issues` — the rule engine's own codes and
+messages — to the model, which restated them, and `merge_findings()` dropped all nine as
+duplicates. The model was shown the answer key and then penalised for copying.
+
+> The AI layer contributes nothing. Send the model the inventory ONLY — no import_issues —
+> and classify agreement as corroboration rather than deduplicating it away.
+
+Codex correctly rejected half of that instruction: sending only the accepted inventory
+would make the model blind to every rejected record, because rejected rows never reach the
+`hardware` table. The duplicate ID, the unknown status and the unparseable date would all
+have become invisible. The corrected design sends accepted inventory **plus the raw source
+rows**, minus the loader's conclusions — evidence without the answer.
+
+> Redesign the evidence payload: accepted inventory plus deduplicated raw source rows, with
+> no loader-generated code, severity or message. Give the model the shared finding taxonomy
+> as an enum so its findings are comparable with the rule engine's, but never tell it which
+> records have which problems. Classify results as corroborated / rules_only / model_only.
+> Rules remain the safety authority and can never be removed or downgraded by the model.
+> Validate each finding individually — quarantine the bad one, keep the batch, exactly as
+> the seed loader treats a bad record. Separate APP_ENV (a real SECRET_KEY is mandatory in
+> production, including a public demo) from DEMO_MODE (whether demo accounts are seeded).
+
+Live result after the redesign: **7 corroborated, 2 rules-only, 1 model-only.** The
+model-only finding is hardware id 3, in `Repair` with no damage notes and no recorded
+reason — the inverse of the rule the deterministic engine checks, and a real gap in it.
+
+The lesson recorded honestly: **every one of these bugs passed a full suite of green tests,
+because the tests were mocked.** Mocking an LLM call tests your assumptions about the model,
+not the model. The failure was only visible by running it for real and reading the numbers
+instead of the pass/fail.
