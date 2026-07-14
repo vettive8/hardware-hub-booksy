@@ -2,6 +2,8 @@
 
 An AI-native internal hardware rental system built for the Booksy Early Careers technical assessment. Hardware Hub combines guarded inventory workflows with an explainable auditor that catches unsafe or contradictory data before it reaches employees.
 
+**Live demo:** <https://hardware-hub-booksy.onrender.com> — demo admin `admin@booksy.com` / `Admin123!` (prefilled). Hosted on Render's free tier, which spins down when idle: the first load may take a minute or two while the instance cold-starts, then it is fast. The database re-seeds from the supplied inventory file on every start, so each visitor gets the same known state, data traps included.
+
 **Stack:** Python 3.12 · FastAPI · SQLite · Vue 3 · Vite · OpenRouter through the OpenAI-compatible SDK (optional)
 
 ## Technology reports
