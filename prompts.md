@@ -49,3 +49,7 @@ This file is updated while the project is built; prompts are recorded at the tim
 ## 2026-07-14 — AI Inventory Auditor prompt
 
 > Build an explainable auditor that sends accepted inventory plus the persisted rejected-row evidence to the OpenAI Responses API when an API key is present. Require JSON findings grounded in evidence. Keep a deterministic rules audit as an offline and failure fallback so a reviewer can always see the duplicate ID, 2027 date, Appel/odd-date row, Unknown-status row, and both damage/status contradictions. Clearly label which mode produced the result; never pretend the fallback was an LLM response.
+
+## 2026-07-14 — Frontend prompt
+
+> Translate the supplied Figma prototype into Vue 3: quiet gray surfaces, fixed sidebar, compact data table, card-based metrics, and a focused split-screen login. Implement responsive login, inventory search/filter/sort, rent/return actions, personal rentals, admin account/hardware forms, repair/delete controls, visible errors, and a first-class AI audit screen. Favor accessible native controls and clear safety-disabled states over decorative animation.
